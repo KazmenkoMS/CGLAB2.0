@@ -193,9 +193,9 @@
     <ClInclude Include="..\Common\imstb_textedit.h" />
     <ClInclude Include="..\Common\imstb_truetype.h" />
     <ClInclude Include="..\Common\MathHelper.h" />
-    <ClInclude Include="..\Common\model.h" />
     <ClInclude Include="..\Common\UploadBuffer.h" />
     <ClInclude Include="FrameResource.h" />
+    <ClInclude Include="Settings.h" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="Shaders\Default.hlsl">

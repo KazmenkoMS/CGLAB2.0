@@ -78,7 +78,6 @@ public:
 private:
     virtual void OnResize()override;
     virtual void Update(const GameTimer& gt)override;
-    virtual void Draw(const GameTimer& gt)override;
 	virtual void DeferredDraw(const GameTimer& gt)override;
     virtual void OnMouseDown(WPARAM btnState, int x, int y)override;
     virtual void OnMouseUp(WPARAM btnState, int x, int y)override;
@@ -116,7 +115,7 @@ private:
     void BuildRenderItems();
 	void DrawSceneToShadowMap();
     void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
-
+	void RenderIMGUI();
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetStaticSamplers();
 	void CreateSpotLight(XMFLOAT3 pos, XMFLOAT3 rot, XMFLOAT3 color, float faloff_start, float faloff_end, float strength, float spotpower);
 	void CreatePointLight(XMFLOAT3 pos, XMFLOAT3 color, float faloff_start, float faloff_end,float strength);
@@ -341,7 +340,108 @@ void TexColumnsApp::OnResize()
 
 
 }
+void TexColumnsApp::RenderIMGUI()
+{
+	ImGui_ImplDX12_NewFrame();
+	ImGui_ImplWin32_NewFrame();
+	ImGui::NewFrame();
+	ImGui::Begin("Settings");
+	if (ImGui::BeginTabBar("Vkladki"))
+	{
+		if (ImGui::BeginTabItem("Objects"))
+		{
+			for (auto& rItem : mAllRitems)
+			{
+				if (rItem->Name != "building")
+				{
+					ImGui::Text(rItem->Name.c_str());
+					ImGui::PushID(++imguiID);
+					ImGui::DragFloat3("Position", (float*)&rItem->Position, 0.1f);
+					ImGui::DragFloat3("Rotation", (float*)&rItem->RotationAngle, 0.05f);
+					ImGui::DragFloat3("Scale", (float*)&rItem->Scale, 0.05f);
+					ImGui::PopID();
+				}
 
+			}
+			ImGui::EndTabItem();
+		}
+		if (ImGui::BeginTabItem("Lights"))
+		{
+			int lId = 0;
+			for (auto& l : mLights)
+			{
+				if (l.type == 1)
+				{
+					std::string s = "\nPoint Light " + std::to_string(lId);
+					ImGui::PushID(++imguiID);
+					ImGui::Text(s.c_str());
+					float* a[] = { &l.Position.x,&l.Position.y,&l.Position.z };
+					ImGui::DragFloat3("Position", *a, 0.1f, -100, 100);
+					ImGui::ColorEdit3("Color", (float*)&l.Color);
+					ImGui::DragFloat("Strength", &l.Strength, 0.1f, 0, 100);
+					ImGui::DragFloat("FaloffStart", &l.FalloffStart, 0.1f, 1, l.FalloffEnd);
+					ImGui::DragFloat("FaloffEnd", &l.FalloffEnd, 0.1f, l.FalloffStart, 100);
+					bool b = l.isDebugOn;
+					ImGui::Checkbox("is Debug On", &b);
+					l.isDebugOn = b;
+					ImGui::PopID();
+					ImGui::Separator();
+				}
+				else if (l.type == 2)
+				{
+					std::string s = "\nDirectional Light " + std::to_string(lId);
+					ImGui::PushID(++imguiID);
+					ImGui::Text(s.c_str());
+					ImGui::SliderFloat3("Direction", (float*)&l.Direction, -1, 1);
+					ImGui::ColorEdit3("Color", (float*)&l.Color);
+					ImGui::DragFloat("Strength", &l.Strength, 0.1f, 0, 100);
+					bool b = l.CastsShadows;
+					ImGui::Checkbox("Cast Shadows", &b);
+					l.CastsShadows = b;
+					bool c = l.enablePCF;
+					ImGui::Checkbox("Enable PCF", &c);
+					l.enablePCF = c;
+					ImGui::DragInt("PCF level", &l.pcf_level, 1, 0, 100);
+					ImGui::PopID();
+					ImGui::Separator();
+
+				}
+				else if (l.type == 3)
+				{
+					std::string s = "\nSpot Light " + std::to_string(lId);
+					ImGui::PushID(++imguiID);
+					ImGui::Text(s.c_str());
+					float* a[] = { &l.Position.x,&l.Position.y,&l.Position.z };
+					ImGui::DragFloat3("Position", (float*)&l.Position, 0.1f, -100, 100);
+					ImGui::DragFloat3("Rotation", (float*)&l.Rotation, 0.1f, -180, 180);
+					ImGui::ColorEdit3("Color", (float*)&l.Color);
+					ImGui::DragFloat("Strength", &l.Strength, 0.1f, 0, 100);
+					ImGui::DragFloat("Faloff Start", &l.FalloffStart, 0.1f, 0, 100);
+					ImGui::DragFloat("Faloff End", &l.FalloffEnd, 0.1f, 0, 100);
+					ImGui::SliderFloat("Spot Power", &l.SpotPower, 0, 10);
+					ImGui::DragInt("PCF level", &l.pcf_level, 1, 0, 100);
+					bool c = l.enablePCF;
+					ImGui::Checkbox("Enable PCF", &c);
+					l.enablePCF = c;
+					bool b = l.CastsShadows;
+					ImGui::Checkbox("Cast Shadows", &b);
+					l.CastsShadows = b;
+					b = l.isDebugOn;
+					ImGui::Checkbox("is Debug On", &b);
+					l.isDebugOn = b;
+					ImGui::PopID();
+					ImGui::Separator();
+
+				}
+			}
+			ImGui::EndTabItem();
+		}
+		mLights[1].Strength = mLights[0].Strength / 1.5; // approximately calculated, looks good tbh
+		mLights[1].Color = mLights[0].Color;
+		ImGui::EndTabBar();
+	}
+	ImGui::End();
+}
 void TexColumnsApp::Update(const GameTimer& gt)
 {
 	imguiID = 0;
@@ -359,26 +459,15 @@ void TexColumnsApp::Update(const GameTimer& gt)
 		CloseHandle(eventHandle);
 	}
 	UpdateCamera(gt);
+
 	// === ImGui Setup ===
-	ImGui_ImplDX12_NewFrame();
-	ImGui_ImplWin32_NewFrame();
-	ImGui::NewFrame();
-	ImGui::Begin("Settings");
-	ImGui::Text("Objects\n\n");
+	RenderIMGUI();
+
 	for (auto& rItem : mAllRitems)
 	{
-
-		if (rItem->Name == "nigga" || rItem->Name == "eyeL" || rItem->Name == "eyeR")
+		if (rItem->Name != "building")
 		{
-			ImGui::Text(rItem->Name.c_str());
-			ImGui::PushID(++imguiID);
-			ImGui::DragFloat3("Position", (float*)&rItem->Position, 0.1f);
-
-			ImGui::DragFloat3("Rotation", (float*)&rItem->RotationAngle, 0.05f);
-
-			ImGui::DragFloat3("Scale", (float*)&rItem->Scale, 0.05f);
-
-			ImGui::PopID();
+			
 			rItem->TranslationM = XMMatrixTranslation(rItem->Position.x, rItem->Position.y, rItem->Position.z);
 			rItem->RotationM = XMMatrixRotationRollPitchYaw(rItem->RotationAngle.x, rItem->RotationAngle.y, rItem->RotationAngle.z);
 			rItem->ScaleM = XMMatrixScaling(rItem->Scale.x, rItem->Scale.y, rItem->Scale.z);
@@ -386,13 +475,11 @@ void TexColumnsApp::Update(const GameTimer& gt)
 			rItem->NumFramesDirty = gNumFrameResources;
 		}
 	}
-	ImGui::Text("\n\nLights\n\n");
 	AnimateMaterials(gt);
 	UpdateObjectCBs(gt);
 	UpdateMaterialCBs(gt);
 	UpdateLightCBs(gt);
 	UpdateMainPassCB(gt);
-	ImGui::End();
 }
 
 
@@ -550,75 +637,14 @@ void TexColumnsApp::UpdateLightCBs(const GameTimer& gt)
 	{
 		LightConstants lConst;
 		PassShadowConstants shConst;
-		if (l.type == 0)
+		if (l.type == 1)
 		{
-			//l.Color = mLights[0].Color; // ambient light equals directional;
-			std::string s = "\Ambient Light " + std::to_string(lId);
-			ImGui::PushID(++imguiID);
-			ImGui::Text(s.c_str());
-			ImGui::DragFloat("Strength", (float*)&l.Strength,0.02f);
-			ImGui::PopID();
-			
-		}
-		else if (l.type == 1)
-		{
-			std::string s = "\nPoint Light " + std::to_string(lId);
-			ImGui::PushID(++imguiID);
-			ImGui::Text(s.c_str());
-			float* a[] = { &l.Position.x,&l.Position.y,&l.Position.z };
 			XMStoreFloat4x4(&l.gWorld, XMMatrixTranspose(XMMatrixScaling(l.FalloffEnd * 2, l.FalloffEnd * 2, l.FalloffEnd * 2) * XMMatrixTranslation(l.Position.x, l.Position.y, l.Position.z)));
-			
-			ImGui::DragFloat3("Position", *a, 0.1f, -100,100);
-			
-			ImGui::ColorEdit3("Color", (float*)&l.Color);
-			
-			ImGui::DragFloat("Strength", &l.Strength,0.1f,0,100);
-			
-			ImGui::DragFloat("FaloffStart", &l.FalloffStart,0.1f, 1, l.FalloffEnd);
-			
-			ImGui::DragFloat("FaloffEnd", &l.FalloffEnd, 0.1f, l.FalloffStart, 100);
-			
-			bool b = l.isDebugOn;
-			ImGui::Checkbox("is Debug On", &b);
-			l.isDebugOn = b;
-			
-			ImGui::PopID();
-		
 			l.Position.z = sin(gt.TotalTime()*3)*6;
-		}
-		else if (l.type == 2)
-		{
-			std::string s = "\nDirectional Light " + std::to_string(lId);
-			ImGui::PushID(++imguiID);
-			ImGui::Text(s.c_str());
-			ImGui::SliderFloat3("Direction", (float*)&l.Direction, -1, 1);
-
-			ImGui::ColorEdit3("Color", (float*)&l.Color);
-
-			ImGui::DragFloat("Strength", &l.Strength, 0.1f, 0, 100);
-
-			bool b = l.CastsShadows;
-			ImGui::Checkbox("Cast Shadows", &b);
-			l.CastsShadows = b;
-
-			bool c = l.enablePCF;
-			ImGui::Checkbox("Enable PCF", &c);
-			l.enablePCF = c;
-
-			ImGui::DragInt("PCF level", &l.pcf_level, 1, 0, 100);
-
-			ImGui::PopID();
-			
 		}
 		else if (l.type == 3)
 		{
-			std::string s = "\nSpot Light " + std::to_string(lId);
-			ImGui::PushID(++imguiID);
-			ImGui::Text(s.c_str());
-			float* a[] = { &l.Position.x,&l.Position.y,&l.Position.z };
-			ImGui::DragFloat3("Position", (float*)&l.Position, 0.1f, -100, 100);
 
-			ImGui::DragFloat3("Rotation", (float*)&l.Rotation, 0.1f, -180, 180);
 			XMStoreFloat4x4(&l.gWorld, XMMatrixTranspose(XMMatrixScaling(l.FalloffEnd*4/3, l.FalloffEnd,l.FalloffEnd*4/3) * XMMatrixTranslation(0, -l.FalloffEnd/2, 0) *
 				XMMatrixRotationRollPitchYaw(XMConvertToRadians(l.Rotation.x), XMConvertToRadians(l.Rotation.y), XMConvertToRadians(l.Rotation.z)) *
 				XMMatrixTranslation(l.Position.x, l.Position.y, l.Position.z)));
@@ -632,33 +658,6 @@ void TexColumnsApp::UpdateLightCBs(const GameTimer& gt)
 			v = XMLoadFloat3(&d);
 			v = XMVector3TransformNormal(v, XMMatrixRotationRollPitchYaw(XMConvertToRadians(l.Rotation.x), XMConvertToRadians(l.Rotation.y), XMConvertToRadians(l.Rotation.z)));
 			l.LightUp = v;
-
-			ImGui::ColorEdit3("Color", (float*)&l.Color);
-
-			ImGui::DragFloat("Strength", &l.Strength, 0.1f, 0, 100);
-
-			ImGui::DragFloat("Faloff Start", &l.FalloffStart, 0.1f, 0,100);
-	
-			ImGui::DragFloat("Faloff End", &l.FalloffEnd,0.1f, 0, 100);
-		
-			ImGui::SliderFloat("Spot Power", &l.SpotPower, 0, 10);
-			
-			ImGui::DragInt("PCF level", &l.pcf_level, 1, 0, 100);
-
-			bool c = l.enablePCF;
-			ImGui::Checkbox("Enable PCF", &c);
-			l.enablePCF = c;
-
-			bool b = l.CastsShadows;
-			ImGui::Checkbox("Cast Shadows", &b);
-			l.CastsShadows = b;
-		
-			b = l.isDebugOn;
-			ImGui::Checkbox("is Debug On", &b);
-			l.isDebugOn = b;
-			ImGui::PopID();
-			
-
 		}
 		if (l.type == 2 && l.CastsShadows || l.type == 3 && l.CastsShadows) // Directional Light
 		{
@@ -1041,25 +1040,26 @@ void TexColumnsApp::BuildLights()
 	dir.Position = { 0,300,0 };
 	dir.Direction = { 0, -1, 0 };
 	dir.Color = { 1,1,1 };
-	dir.Strength = 1.2;
+	dir.Strength = 1.0;
 	dir.type = 2;
 	dir.LightUp = XMVectorSet(0, 0, -1, 0);
 	auto& world = XMMatrixScaling(1000,1000,1000);
 	XMStoreFloat4x4(&dir.gWorld, XMMatrixTranspose(world));
 	mLights.push_back(dir);
 
+	// ambient
 	Light ambient;
 	ambient.LightCBIndex = mLights.size();
 	ambient.Position = { 3.0f, 0.0f, 3.0f };
-	ambient.Color = { 0,0,0 }; // need only x
-	ambient.Strength = 0.2; // need only x
+	ambient.Color = { 1,1,1 }; // need only x
+	ambient.Strength = 1; 
 	ambient.type = 0;
 	XMStoreFloat4x4(&ambient.gWorld, XMMatrixTranspose(XMMatrixTranslation(0, 0, 0) * XMMatrixScaling(1000, 1000, 1000)));
 	mLights.push_back(ambient);
 
+	// other
 	CreatePointLight({ -3,3,0 }, { 4,0,0 }, 1, 5,1);
 	CreatePointLight({ 3,3,0 }, { 0,0,4 }, 1, 5,1);
-
 	CreateSpotLight({ -5,3,30 }, { 0,0,-90 }, { 1,1,1 }, 1, 30, 6, 1);
 }
 
@@ -1280,7 +1280,7 @@ void TexColumnsApp::BuildCustomMeshGeometry(std::string name, UINT& meshVertexOf
 	Assimp::Importer importer;
 
 	// „итаем файл с постпроцессингом: триангул€ци€, флип UV (если нужно) и генераци€ нормалей.
-	const aiScene* scene = importer.ReadFile("../Common/" + name + ".obj",
+	const aiScene* scene = importer.ReadFile("../Common/models/" + name + ".obj",
 		aiProcess_Triangulate |
 		aiProcess_ConvertToLeftHanded |
 		aiProcess_FlipUVs |
@@ -1416,6 +1416,19 @@ void TexColumnsApp::BuildCustomMeshGeometry(std::string name, UINT& meshVertexOf
 	///////
 	Geo->MultiDrawArgs[name] = meshSubmeshes;
 }
+
+std::vector<std::string> ReadModels(std::string filepath)
+{
+	std::ifstream file(filepath);
+	std::string line;
+	std::vector<std::string>filenames;
+	while (std::getline(file, line))
+	{
+		filenames.push_back(line);
+	}
+	return filenames;
+}
+
 void TexColumnsApp::BuildShapeGeometry()
 {
     GeometryGenerator geoGen;
@@ -1518,12 +1531,11 @@ void TexColumnsApp::BuildShapeGeometry()
 
 	auto geo = std::make_unique<MeshGeometry>();
 	geo->Name = "shapeGeo";
-	BuildCustomMeshGeometry("sponza", meshVertexOffset, meshIndexOffset, prevVertSize, prevIndSize, vertices, indices, geo.get());
-	BuildCustomMeshGeometry("negr", meshVertexOffset, meshIndexOffset, prevVertSize, prevIndSize, vertices, indices, geo.get());
-	BuildCustomMeshGeometry("left", meshVertexOffset, meshIndexOffset, prevVertSize, prevIndSize, vertices, indices, geo.get());
-	BuildCustomMeshGeometry("right", meshVertexOffset, meshIndexOffset, prevVertSize, prevIndSize, vertices, indices, geo.get());
-	BuildCustomMeshGeometry("plane2", meshVertexOffset, meshIndexOffset, prevVertSize, prevIndSize, vertices, indices, geo.get());
-	
+	std::vector<std::string>modelnames = ReadModels("../Common/modellist.txt");
+	for (std::string name : modelnames)
+	{
+		BuildCustomMeshGeometry(name, meshVertexOffset, meshIndexOffset, prevVertSize, prevIndSize, vertices, indices, geo.get());
+	}
 
 
 
@@ -1800,7 +1812,7 @@ void TexColumnsApp::RenderCustomMesh(std::string unique_name, std::string meshna
 
 void TexColumnsApp::BuildRenderItems()
 {
-	auto boxRitem = std::make_unique<RenderItem>();
+	/*auto boxRitem = std::make_unique<RenderItem>();
 	boxRitem->Name = "box";
 	XMStoreFloat4x4(&boxRitem->World, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 5.0f, -10.0f));
 	XMStoreFloat4x4(&boxRitem->TexTransform, XMMatrixScaling(1,1,1));
@@ -1811,95 +1823,25 @@ void TexColumnsApp::BuildRenderItems()
 	boxRitem->IndexCount = boxRitem->Geo->DrawArgs["box"].IndexCount;
 	boxRitem->StartIndexLocation = boxRitem->Geo->DrawArgs["box"].StartIndexLocation;
 	boxRitem->BaseVertexLocation = boxRitem->Geo->DrawArgs["box"].BaseVertexLocation;
-	mAllRitems.push_back(std::move(boxRitem));
+	mAllRitems.push_back(std::move(boxRitem));*/
 
 	RenderCustomMesh("building", "sponza", "", XMFLOAT3(0.07, 0.07, 0.07), XMFLOAT3(0, 3.14 / 2, 0), XMFLOAT3(0, 0, 0));
 	RenderCustomMesh("nigga", "negr", "NiggaMat", XMFLOAT3(3, 3, 3), XMFLOAT3(0, 3.14, 0), XMFLOAT3(0, 3, 0));
 	RenderCustomMesh("nigga2", "negr", "NiggaMat", XMFLOAT3(3, 3, 3), XMFLOAT3(0, -3.14 / 2, 0), XMFLOAT3(-10, 3, 30));
-	RenderCustomMesh("eyeL", "left", "eye", XMFLOAT3(3, 3, 3), XMFLOAT3(0, 3.14, 0), XMFLOAT3());
-	RenderCustomMesh("eyeR", "right", "eye", XMFLOAT3(3, 3, 3), XMFLOAT3(0, 3.14, 0), XMFLOAT3());
+	RenderCustomMesh("eyeL", "left", "eye", XMFLOAT3(3, 3, 3), XMFLOAT3(0, 3.14, 0), XMFLOAT3(0.6,3.87,1.1));
+	RenderCustomMesh("eyeR", "right", "eye", XMFLOAT3(3, 3, 3), XMFLOAT3(0, 3.14, 0), XMFLOAT3(-0.6, 3.87, 1.1));
 	BuildFrameResources();
-	//RenderCustomMesh("plan", "plane2", "map", XMMatrixScaling(3, 3, 3), XMMatrixRotationRollPitchYaw(3.14, 0, 3.14), XMMatrixTranslation(0,-10,0));
-	//RenderCustomMesh("plan", "plane2", "map2", XMMatrixScaling(3, 3, 3), XMMatrixRotationRollPitchYaw(3.14, 0, 3.14), XMMatrixTranslation(0,10,0));
-	// All the render items are opaque.
+
 	for (auto& e : mAllRitems)
 	{
-		if (e->Name == "plan")
-		{
-			XMStoreFloat4x4(&e->TexTransform, XMMatrixScaling(1, 1, 1));
-		}
 		mOpaqueRitems.push_back(e.get());
 	}
 }
 
 
-// NOT USING
-void TexColumnsApp::Draw(const GameTimer& gt)
-{
 
-	auto cmdListAlloc = mCurrFrameResource->CmdListAlloc;
-
-	// Reuse the memory associated with command recording.
-	// We can only reset when the associated command lists have finished execution on the GPU.
-	ThrowIfFailed(cmdListAlloc->Reset());
-
-	// A command list can be reset after it has been added to the command queue via ExecuteCommandList.
-	// Reusing the command list reuses memory.
-	ThrowIfFailed(mCommandList->Reset(cmdListAlloc.Get(), mPSOs["opaque"].Get()));
-
-	mCommandList->RSSetViewports(1, &mScreenViewport);
-	mCommandList->RSSetScissorRects(1, &mScissorRect);
-
-	// Indicate a state transition on the resource usage.
-	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-		D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
-
-	// Clear the back buffer and depth buffer.
-	mCommandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::LightSteelBlue, 0, nullptr);
-	mCommandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
-
-	// Specify the buffers we are going to render to.
-	mCommandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
-
-	ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
-	mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
-
-	mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
-
-	auto passCB = mCurrFrameResource->PassCB->Resource();
-	mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
-
-
-	DrawRenderItems(mCommandList.Get(), mOpaqueRitems);
-
-
-	// Indicate a state transition on the resource usage.
-	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
-		D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT));
-
-	// Done recording commands.
-	ThrowIfFailed(mCommandList->Close());
-
-	// Add the command list to the queue for execution.
-	ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
-	mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
-
-	// Swap the back and front buffers
-	ThrowIfFailed(mSwapChain->Present(1, 0));
-	mCurrBackBuffer = (mCurrBackBuffer + 1) % SwapChainBufferCount;
-
-	// Advance the fence value to mark commands up to this fence point.
-	mCurrFrameResource->Fence = ++mCurrentFence;
-
-	// Add an instruction to the command queue to set a new fence point. 
-	// Because we are on the GPU timeline, the new fence point won't be 
-	// set until the GPU finishes processing all the commands prior to this Signal().
-	mCommandQueue->Signal(mFence.Get(), mCurrentFence);
-}
 void TexColumnsApp::DrawSceneToShadowMap()
 {
-	
-
 	UINT shadowCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(PassShadowConstants));
 	for (auto light : mLights)
 	{
@@ -2174,6 +2116,8 @@ void TexColumnsApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const st
         cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
     }
 }
+
+
 
 std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> TexColumnsApp::GetStaticSamplers()
 {
