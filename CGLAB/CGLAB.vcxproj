@@ -23,6 +23,7 @@
     <Keyword>Win32Proj</Keyword>
     <RootNamespace>TexColumns</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
+    <ProjectName>CGLAB</ProjectName>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'" Label="Configuration">
@@ -109,7 +110,7 @@
       <WarningLevel>Level3</WarningLevel>
       <Optimization>Disabled</Optimization>
       <PreprocessorDefinitions>WIN32;_DEBUG;_WINDOWS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
-      <AdditionalIncludeDirectories>$(ProjectPath)\..\..\..\Common;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <AdditionalIncludeDirectories>$(SolutionDir)\..\Common;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <LanguageStandard>stdcpp17</LanguageStandard>
     </ClCompile>
     <Link>
@@ -159,42 +160,41 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="..\..\Common\Camera.cpp" />
-    <ClCompile Include="..\..\Common\d3dApp.cpp" />
-    <ClCompile Include="..\..\Common\d3dUtil.cpp" />
-    <ClCompile Include="..\..\Common\DDSTextureLoader.cpp" />
-    <ClCompile Include="..\..\Common\GameTimer.cpp" />
-    <ClCompile Include="..\..\Common\GeometryGenerator.cpp" />
-    <ClCompile Include="..\..\Common\imgui.cpp" />
-    <ClCompile Include="..\..\Common\imgui_draw.cpp" />
-    <ClCompile Include="..\..\Common\imgui_impl_dx12.cpp" />
-    <ClCompile Include="..\..\Common\imgui_impl_win32.cpp" />
-    <ClCompile Include="..\..\Common\imgui_tables.cpp" />
-    <ClCompile Include="..\..\Common\imgui_widgets.cpp" />
-    <ClCompile Include="..\..\Common\MathHelper.cpp" />
-    <ClCompile Include="..\..\Common\model.cpp" />
+    <ClCompile Include="..\Common\Camera.cpp" />
+    <ClCompile Include="..\Common\d3dApp.cpp" />
+    <ClCompile Include="..\Common\d3dUtil.cpp" />
+    <ClCompile Include="..\Common\DDSTextureLoader.cpp" />
+    <ClCompile Include="..\Common\GameTimer.cpp" />
+    <ClCompile Include="..\Common\GeometryGenerator.cpp" />
+    <ClCompile Include="..\Common\imgui.cpp" />
+    <ClCompile Include="..\Common\imgui_draw.cpp" />
+    <ClCompile Include="..\Common\imgui_impl_dx12.cpp" />
+    <ClCompile Include="..\Common\imgui_impl_win32.cpp" />
+    <ClCompile Include="..\Common\imgui_tables.cpp" />
+    <ClCompile Include="..\Common\imgui_widgets.cpp" />
+    <ClCompile Include="..\Common\MathHelper.cpp" />
+    <ClCompile Include="CGLAB.cpp" />
     <ClCompile Include="FrameResource.cpp" />
-    <ClCompile Include="TexColumnsApp.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="..\..\Common\Camera.h" />
-    <ClInclude Include="..\..\Common\d3dApp.h" />
-    <ClInclude Include="..\..\Common\d3dUtil.h" />
-    <ClInclude Include="..\..\Common\d3dx12.h" />
-    <ClInclude Include="..\..\Common\DDSTextureLoader.h" />
-    <ClInclude Include="..\..\Common\GameTimer.h" />
-    <ClInclude Include="..\..\Common\GeometryGenerator.h" />
-    <ClInclude Include="..\..\Common\imconfig.h" />
-    <ClInclude Include="..\..\Common\imgui.h" />
-    <ClInclude Include="..\..\Common\imgui_impl_dx12.h" />
-    <ClInclude Include="..\..\Common\imgui_impl_win32.h" />
-    <ClInclude Include="..\..\Common\imgui_internal.h" />
-    <ClInclude Include="..\..\Common\imstb_rectpack.h" />
-    <ClInclude Include="..\..\Common\imstb_textedit.h" />
-    <ClInclude Include="..\..\Common\imstb_truetype.h" />
-    <ClInclude Include="..\..\Common\MathHelper.h" />
-    <ClInclude Include="..\..\Common\model.h" />
-    <ClInclude Include="..\..\Common\UploadBuffer.h" />
+    <ClInclude Include="..\Common\Camera.h" />
+    <ClInclude Include="..\Common\d3dApp.h" />
+    <ClInclude Include="..\Common\d3dUtil.h" />
+    <ClInclude Include="..\Common\d3dx12.h" />
+    <ClInclude Include="..\Common\DDSTextureLoader.h" />
+    <ClInclude Include="..\Common\GameTimer.h" />
+    <ClInclude Include="..\Common\GeometryGenerator.h" />
+    <ClInclude Include="..\Common\imconfig.h" />
+    <ClInclude Include="..\Common\imgui.h" />
+    <ClInclude Include="..\Common\imgui_impl_dx12.h" />
+    <ClInclude Include="..\Common\imgui_impl_win32.h" />
+    <ClInclude Include="..\Common\imgui_internal.h" />
+    <ClInclude Include="..\Common\imstb_rectpack.h" />
+    <ClInclude Include="..\Common\imstb_textedit.h" />
+    <ClInclude Include="..\Common\imstb_truetype.h" />
+    <ClInclude Include="..\Common\MathHelper.h" />
+    <ClInclude Include="..\Common\model.h" />
+    <ClInclude Include="..\Common\UploadBuffer.h" />
     <ClInclude Include="FrameResource.h" />
   </ItemGroup>
   <ItemGroup>

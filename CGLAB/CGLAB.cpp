@@ -1,11 +1,11 @@
 //***************************************************************************************
 // TexColumnsApp.cpp by Frank Luna (C) 2015 All Rights Reserved.
 //***************************************************************************************
-#include "../../Common/Camera.h"
-#include "../../Common/d3dApp.h"
-#include "../../Common/MathHelper.h"
-#include "../../Common/UploadBuffer.h"
-#include "../../Common/GeometryGenerator.h"
+#include "Camera.h"
+#include "d3dApp.h"
+#include "MathHelper.h"
+#include "UploadBuffer.h"
+#include "GeometryGenerator.h"
 #include <filesystem>
 #include "FrameResource.h"
 #include <iostream>
@@ -848,12 +848,13 @@ void TexColumnsApp::CreateGBuffer()
 void TexColumnsApp::LoadAllTextures()
 {
 	// MEGA COSTYL
-	for (const auto& entry : std::filesystem::directory_iterator("../../Textures/textures"))
+	for (const auto& entry : std::filesystem::directory_iterator("../Textures/textures"))
 	{
+		
 		if (entry.is_regular_file() && entry.path().extension() == ".dds")
 		{
 			std::string filepath = entry.path().string();
-			filepath = filepath.substr(24, filepath.size());
+			filepath = filepath.substr(21, filepath.size());
 			filepath = filepath.substr(0, filepath.size()-4);
 			filepath = "textures/" + filepath;
 			LoadTexture(filepath);
@@ -865,11 +866,13 @@ void TexColumnsApp::LoadTexture(const std::string& name)
 {
 	auto tex = std::make_unique<Texture>();
 	tex->Name = name;
-	tex->Filename = L"../../Textures/" + std::wstring(name.begin(), name.end()) + L".dds";
+	tex->Filename = L"../Textures/" + std::wstring(name.begin(), name.end()) + L".dds";
 	
 	if (FAILED(DirectX::CreateDDSTextureFromFile12(md3dDevice.Get(),
 		mCommandList.Get(), tex->Filename.c_str(),
-		tex->Resource, tex->UploadHeap))) std::cout << name << "\n";
+		tex->Resource, tex->UploadHeap))) {
+		std::cout << "FAILED loading " << name << "\n"; return;
+	}
 	mTextures[name] = std::move(tex);
 }
 
@@ -1186,6 +1189,8 @@ void TexColumnsApp::BuildDescriptorHeaps()
 	int offset = 0;
 	for (const auto& tex : mTextures) {
 		auto text = tex.second->Resource;
+		if (!text)
+			continue;
 		DXGI_FORMAT format = text->GetDesc().Format;
 		if (format == DXGI_FORMAT_UNKNOWN) {
 			abort();
@@ -1275,7 +1280,7 @@ void TexColumnsApp::BuildCustomMeshGeometry(std::string name, UINT& meshVertexOf
 	Assimp::Importer importer;
 
 	// „итаем файл с постпроцессингом: триангул€ци€, флип UV (если нужно) и генераци€ нормалей.
-	const aiScene* scene = importer.ReadFile("../../Common/" + name + ".obj",
+	const aiScene* scene = importer.ReadFile("../Common/" + name + ".obj",
 		aiProcess_Triangulate |
 		aiProcess_ConvertToLeftHanded |
 		aiProcess_FlipUVs |
