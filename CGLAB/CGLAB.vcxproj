@@ -175,6 +175,7 @@
     <ClCompile Include="..\Common\MathHelper.cpp" />
     <ClCompile Include="CGLAB.cpp" />
     <ClCompile Include="FrameResource.cpp" />
+    <ClCompile Include="TerrainSystem.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\Common\Camera.h" />
@@ -194,8 +195,11 @@
     <ClInclude Include="..\Common\imstb_truetype.h" />
     <ClInclude Include="..\Common\MathHelper.h" />
     <ClInclude Include="..\Common\UploadBuffer.h" />
+    <ClInclude Include="CGLAB.h" />
     <ClInclude Include="FrameResource.h" />
+    <ClInclude Include="RenderItem.h" />
     <ClInclude Include="Settings.h" />
+    <ClInclude Include="TerrainSystem.h" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="Shaders\Default.hlsl">
@@ -217,6 +221,11 @@
   </ItemGroup>
   <ItemGroup>
     <Text Include="Shaders\ShadowMap.hlsl">
+      <FileType>Document</FileType>
+    </Text>
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="Shaders\Terrain.hlsl">
       <FileType>Document</FileType>
     </Text>
   </ItemGroup>

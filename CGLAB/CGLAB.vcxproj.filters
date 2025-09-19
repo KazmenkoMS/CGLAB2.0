@@ -60,6 +60,9 @@
     <ClCompile Include="CGLAB.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="TerrainSystem.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\Common\d3dApp.h">
@@ -89,9 +92,6 @@
     <ClInclude Include="FrameResource.h">
       <Filter>Header Files</Filter>
     </ClInclude>
-    <ClInclude Include="..\Common\model.h">
-      <Filter>Header Files</Filter>
-    </ClInclude>
     <ClInclude Include="..\Common\Camera.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -119,6 +119,18 @@
     <ClInclude Include="..\Common\imconfig.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="Settings.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="TerrainSystem.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="CGLAB.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="RenderItem.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Text Include="Shaders\Default.hlsl" />
@@ -126,5 +138,6 @@
     <Text Include="Shaders\LightingPass.hlsl" />
     <Text Include="Shaders\GeometryPass.hlsl" />
     <Text Include="Shaders\ShadowMap.hlsl" />
+    <Text Include="Shaders\Terrain.hlsl" />
   </ItemGroup>
 </Project>

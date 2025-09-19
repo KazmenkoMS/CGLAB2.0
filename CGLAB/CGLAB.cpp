@@ -1,203 +1,22 @@
 //***************************************************************************************
 // TexColumnsApp.cpp by Frank Luna (C) 2015 All Rights Reserved.
 //***************************************************************************************
-#include "Camera.h"
-#include "d3dApp.h"
-#include "MathHelper.h"
-#include "UploadBuffer.h"
-#include "GeometryGenerator.h"
-#include <filesystem>
-#include "FrameResource.h"
-#include <iostream>
+#include "CGLAB.h"
 
 #include "imgui_impl_dx12.h"
 #include "imgui_impl_win32.h"
 #include "imgui.h"
 Camera cam;
 static int imguiID = 0;
-using Microsoft::WRL::ComPtr;
-using namespace DirectX;
-using namespace DirectX::PackedVector;
-
+int visibleTile = 0;
+static bool wireframe = false;
+static bool dynamicLOD = false;
+float heightScale;
 #pragma comment(lib, "d3dcompiler.lib")
 #pragma comment(lib, "D3D12.lib")
 
 const int gNumFrameResources = 3;
 
-// Lightweight structure stores parameters to draw a shape.  This will
-// vary from app-to-app.
-struct RenderItem
-{
-	RenderItem() = default;
-    RenderItem(const RenderItem& rhs) = delete;
-
-    // World matrix of the shape that describes the object's local space
-    // relative to the world space, which defines the position, orientation,
-    // and scale of the object in the world.
-    XMFLOAT4X4 World = MathHelper::Identity4x4();
-    XMMATRIX ScaleM = XMMatrixIdentity();
-	XMMATRIX RotationM = XMMatrixIdentity();
-	XMMATRIX TranslationM = XMMatrixIdentity();
-	XMFLOAT3 Position = { 0.0f, 0.0f, 2.0f };
-	XMFLOAT3 RotationAngle = { 0.0f, .0f, 0.0f };
-	XMFLOAT3 Scale = { 1.0f, 1.0f, 1.0f };
-	XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
-
-	// Dirty flag indicating the object data has changed and we need to update the constant buffer.
-	// Because we have an object cbuffer for each FrameResource, we have to apply the
-	// update to each FrameResource.  Thus, when we modify obect data we should set 
-	// NumFramesDirty = gNumFrameResources so that each frame resource gets the update.
-	int NumFramesDirty = gNumFrameResources;
-
-	// Index into GPU constant buffer corresponding to the ObjectCB for this render item.
-	UINT ObjCBIndex = -1;
-
-	Material* Mat = nullptr;
-	MeshGeometry* Geo = nullptr;
-
-    // Primitive topology.
-    D3D12_PRIMITIVE_TOPOLOGY PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-
-    // DrawIndexedInstanced parameters.
-    UINT IndexCount = 0;
-    UINT StartIndexLocation = 0;
-    int BaseVertexLocation = 0;
-	std::string Name;
-};
-
-class TexColumnsApp : public D3DApp
-{
-public:
-    TexColumnsApp(HINSTANCE hInstance);
-    TexColumnsApp(const TexColumnsApp& rhs) = delete;
-    TexColumnsApp& operator=(const TexColumnsApp& rhs) = delete;
-    ~TexColumnsApp();
-
-    virtual bool Initialize()override;
-
-private:
-    virtual void OnResize()override;
-    virtual void Update(const GameTimer& gt)override;
-	virtual void DeferredDraw(const GameTimer& gt)override;
-    virtual void OnMouseDown(WPARAM btnState, int x, int y)override;
-    virtual void OnMouseUp(WPARAM btnState, int x, int y)override;
-    virtual void OnMouseMove(WPARAM btnState, int x, int y)override;
-	virtual void MoveBackFwd(float step)override;
-	virtual void MoveLeftRight(float step)override;
-	virtual void MoveUpDown(float step)override;
-	void OnKeyPressed(const GameTimer& gt, WPARAM key) override;
-	void OnKeyReleased(const GameTimer& gt, WPARAM key) override;
-	std::wstring GetCamSpeed() override;
-	void UpdateCamera(const GameTimer& gt);
-	void BuildShadowMapViews();
-	void AnimateMaterials(const GameTimer& gt);
-	void UpdateObjectCBs(const GameTimer& gt);
-	void UpdateLightCBs(const GameTimer& gt);
-	void UpdateMaterialCBs(const GameTimer& gt);
-	void UpdateMainPassCB(const GameTimer& gt);
-	void CreateGBuffer() override;
-	void LoadAllTextures();
-	void LoadTexture(const std::string& name);
-    void BuildRootSignature();
-    void BuildLightingRootSignature();
-	void BuildShadowPassRootSignature();
-	void BuildLights();
-	void SetLightShapes();
-	void BuildDescriptorHeaps();
-    void BuildShadersAndInputLayout();
-    void BuildShapeGeometry();
-    void BuildPSOs();
-    void BuildFrameResources();
-	void CreateMaterial(std::string _name, int _CBIndex, int _SRVDiffIndex, int _SRVNMapIndex, XMFLOAT4 _DiffuseAlbedo, XMFLOAT3 _FresnelR0, float _Roughness);
-    void BuildMaterials();
-	void RenderCustomMesh(std::string unique_name, std::string meshname, std::string materialName, XMFLOAT3 Scale, XMFLOAT3 Rotation, XMFLOAT3 Position);
-	void BuildCustomMeshGeometry(std::string name, UINT& meshVertexOffset, UINT& meshIndexOffset, UINT& prevVertSize, UINT& prevIndSize, std::vector<Vertex>& vertices, std::vector<std::uint16_t>& indices, MeshGeometry* Geo);
-    void BuildRenderItems();
-	void DrawSceneToShadowMap();
-    void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
-	void RenderIMGUI();
-	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetStaticSamplers();
-	void CreateSpotLight(XMFLOAT3 pos, XMFLOAT3 rot, XMFLOAT3 color, float faloff_start, float faloff_end, float strength, float spotpower);
-	void CreatePointLight(XMFLOAT3 pos, XMFLOAT3 color, float faloff_start, float faloff_end,float strength);
-
-private:
-	std::unordered_map<std::string, unsigned int>ObjectsMeshCount;
-    std::vector<std::unique_ptr<FrameResource>> mFrameResources;
-    FrameResource* mCurrFrameResource = nullptr;
-    int mCurrFrameResourceIndex = 0;
-	//
-	std::unordered_map<std::string, int>TexOffsets;
-	//
-    UINT mCbvSrvDescriptorSize = 0;
-
-    ComPtr<ID3D12RootSignature> mRootSignature = nullptr;
-    ComPtr<ID3D12RootSignature> mLightingRootSignature = nullptr;
-	ComPtr<ID3D12RootSignature> mShadowPassRootSignature = nullptr;
-
-	ComPtr<ID3D12DescriptorHeap> mSrvDescriptorHeap = nullptr;
-	ComPtr<ID3D12DescriptorHeap> m_ImGuiSrvDescriptorHeap; // Member variable
-
-	std::unordered_map<std::string, std::unique_ptr<MeshGeometry>> mGeometries;
-	std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
-	std::unordered_map<std::string, std::unique_ptr<Texture>> mTextures;
-	std::unordered_map<std::string, ComPtr<ID3DBlob>> mShaders;
-	std::unordered_map<std::string, ComPtr<ID3D12PipelineState>> mPSOs;
-
-    std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayout;
- 
-	// List of all the render items.
-	std::vector<std::unique_ptr<RenderItem>> mAllRitems;
-	std::vector<Light>mLights;
-	// Render items divided by PSO.
-	std::vector<RenderItem*> mOpaqueRitems;
-
-    PassConstants mMainPassCB;
-	XMFLOAT3 mEyePos = { 0.0f, 0.0f, 0.0f };
-	XMFLOAT4X4 mView = MathHelper::Identity4x4();
-	XMFLOAT4X4 mProj = MathHelper::Identity4x4();
-
-    float mTheta = 1.5f*XM_PI;
-    float mPhi = 0.2f*XM_PI;
-    float mRadius = 15.0f;
-
-    POINT mLastMousePos;
-
-	// G-Buffer ресурсы
-	ComPtr<ID3D12Resource> mGBufferPosition;
-	ComPtr<ID3D12Resource> mGBufferNormal;
-	ComPtr<ID3D12Resource> mGBufferAlbedo;
-	ComPtr<ID3D12Resource> mGBufferDepthStencil;
-	ComPtr<ID3D12DescriptorHeap> mGBufferSrvHeap = nullptr;
-
-	// Дескрипторы для G-Buffer
-	CD3DX12_CPU_DESCRIPTOR_HANDLE mGBufferRTVs[3]; // 0:Position, 1:Normal, 2:Albedo
-	CD3DX12_CPU_DESCRIPTOR_HANDLE mGBufferDSV;
-	CD3DX12_GPU_DESCRIPTOR_HANDLE mGBufferSRVs[3]; // SRV для шейдеров
-
-	UINT mGBufferRTVDescriptorSize;
-	UINT mGBufferDSVDescriptorSize;
-
-	// shadow resources 
-	const UINT SHADOW_MAP_WIDTH = 2048;
-	const UINT SHADOW_MAP_HEIGHT = 2048;
-	const DXGI_FORMAT SHADOW_MAP_FORMAT = DXGI_FORMAT_R24G8_TYPELESS; // Resource format
-	const DXGI_FORMAT SHADOW_MAP_DSV_FORMAT = DXGI_FORMAT_D24_UNORM_S8_UINT; // DSV format
-	const DXGI_FORMAT SHADOW_MAP_SRV_FORMAT = DXGI_FORMAT_R24_UNORM_X8_TYPELESS; // SRV format
-	Microsoft::WRL::ComPtr<ID3D12Resource> mShadowMap;
-	Microsoft::WRL::ComPtr<ID3D12DescriptorHeap> mShadowDsvHeap; // A separate heap for shadow map DSVs
-	D3D12_VIEWPORT mShadowViewport;
-	D3D12_RECT mShadowScissorRect;
-
-	// Размеры как у окна
-	UINT width = mClientWidth;
-	UINT height = mClientHeight;
-
-	// Форматы:
-	const DXGI_FORMAT positionFormat = DXGI_FORMAT_R32G32B32A32_FLOAT;
-	const DXGI_FORMAT normalFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
-	const DXGI_FORMAT albedoFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
-
-};
 
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
     PSTR cmdLine, int showCmd)
@@ -209,7 +28,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
 
     try
     {
-        TexColumnsApp theApp(hInstance);
+        CGLAB theApp(hInstance);
         if(!theApp.Initialize())
             return 0;
 
@@ -222,31 +41,31 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
     }
 }
 
-TexColumnsApp::TexColumnsApp(HINSTANCE hInstance)
+CGLAB::CGLAB(HINSTANCE hInstance)
     : D3DApp(hInstance)
 {
 }
 
-TexColumnsApp::~TexColumnsApp()
+CGLAB::~CGLAB()
 {
     if(md3dDevice != nullptr)
         FlushCommandQueue();
 }
-void TexColumnsApp::MoveBackFwd(float step) {
+void CGLAB::MoveBackFwd(float step) {
 	XMFLOAT3 newPos;
 	XMVECTOR fwd = cam.GetLook();
 	XMStoreFloat3(&newPos, cam.GetPosition() + fwd * step);
 	cam.SetPosition(newPos);
 	cam.UpdateViewMatrix();
 }
-void TexColumnsApp::MoveLeftRight(float step) {
+void CGLAB::MoveLeftRight(float step) {
 	XMFLOAT3 newPos;
 	XMVECTOR right = cam.GetRight();
 	XMStoreFloat3(&newPos, cam.GetPosition() + right * step);
 	cam.SetPosition(newPos);
 	cam.UpdateViewMatrix();
 }
-void TexColumnsApp::MoveUpDown(float step) {
+void CGLAB::MoveUpDown(float step) {
 	XMFLOAT3 newPos;
 	XMVECTOR up = cam.GetUp();
 	XMStoreFloat3(&newPos, cam.GetPosition() + up * step);
@@ -254,7 +73,7 @@ void TexColumnsApp::MoveUpDown(float step) {
 	cam.UpdateViewMatrix();
 }
 
-bool TexColumnsApp::Initialize()
+bool CGLAB::Initialize()
 {
 	// Создаем консольное окно.
 	AllocConsole();
@@ -276,9 +95,14 @@ bool TexColumnsApp::Initialize()
 	// so we have to query this information.
     mCbvSrvDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
+	m_terrainSystem = std::make_unique<TerrainSystem>();
+	m_terrainSystem->Initialize(md3dDevice.Get(), L"../Textures/textures/hMap.dds",
+		8192, 4); 
+
  
 	LoadAllTextures();
     BuildRootSignature();
+    BuildTerrainRootSignature();
     BuildLightingRootSignature();
 	BuildShadowPassRootSignature();
 	BuildLights();
@@ -329,18 +153,18 @@ bool TexColumnsApp::Initialize()
     return true;
 }
  
-void TexColumnsApp::OnResize()
+void CGLAB::OnResize()
 {
     D3DApp::OnResize();
 	CreateGBuffer();
 	BuildDescriptorHeaps();
     // The window resized, so update the aspect ratio and recompute the projection matrix.
-    XMMATRIX P = XMMatrixPerspectiveFovLH(0.4*MathHelper::Pi, AspectRatio(), 1.0f, 1000.0f);
+    XMMATRIX P = XMMatrixPerspectiveFovLH(0.4*MathHelper::Pi, AspectRatio(), 1.0f, 10000.0f);
     XMStoreFloat4x4(&mProj, P);
 
 
 }
-void TexColumnsApp::RenderIMGUI()
+void CGLAB::RenderIMGUI()
 {
 	ImGui_ImplDX12_NewFrame();
 	ImGui_ImplWin32_NewFrame();
@@ -436,13 +260,26 @@ void TexColumnsApp::RenderIMGUI()
 			}
 			ImGui::EndTabItem();
 		}
+		if (ImGui::BeginTabItem("Terrain"))
+		{
+			if (m_terrainSystem)
+			{
+				ImGui::Text("Visible Terrain Tiles: %d", (int)m_visibleTerrainTiles.size());
+				ImGui::SliderFloat("Height Scale", &heightScale, 1.0f, 200.0f);
+				ImGui::SliderInt("LodLevel", &visibleTile, 0, 4);
+				ImGui::Checkbox("Wireframe", &wireframe);
+				ImGui::Checkbox("DynamicLOD", &dynamicLOD);
+
+			}
+			ImGui::EndTabItem();
+		}
 		mLights[1].Strength = mLights[0].Strength / 1.5; // approximately calculated, looks good tbh
 		mLights[1].Color = mLights[0].Color;
 		ImGui::EndTabBar();
 	}
 	ImGui::End();
 }
-void TexColumnsApp::Update(const GameTimer& gt)
+void CGLAB::Update(const GameTimer& gt)
 {
 	imguiID = 0;
 	// Cycle through the circular frame resource array.
@@ -459,7 +296,8 @@ void TexColumnsApp::Update(const GameTimer& gt)
 		CloseHandle(eventHandle);
 	}
 	UpdateCamera(gt);
-
+	// Обновляем terrain систему
+	UpdateTerrain(gt);
 	// === ImGui Setup ===
 	RenderIMGUI();
 
@@ -479,13 +317,14 @@ void TexColumnsApp::Update(const GameTimer& gt)
 	UpdateObjectCBs(gt);
 	UpdateMaterialCBs(gt);
 	UpdateLightCBs(gt);
+	UpdateTerrainCBs(gt);
 	UpdateMainPassCB(gt);
 }
 
 
 
 
-void TexColumnsApp::OnMouseDown(WPARAM btnState, int x, int y)
+void CGLAB::OnMouseDown(WPARAM btnState, int x, int y)
 {
     mLastMousePos.x = x;
     mLastMousePos.y = y;
@@ -493,12 +332,12 @@ void TexColumnsApp::OnMouseDown(WPARAM btnState, int x, int y)
     SetCapture(mhMainWnd);
 }
 
-void TexColumnsApp::OnMouseUp(WPARAM btnState, int x, int y)
+void CGLAB::OnMouseUp(WPARAM btnState, int x, int y)
 {
     ReleaseCapture();
 }
 
-void TexColumnsApp::OnMouseMove(WPARAM btnState, int x, int y)
+void CGLAB::OnMouseMove(WPARAM btnState, int x, int y)
 {
 	if (!ImGui::GetIO().WantCaptureMouse)
 	{
@@ -519,7 +358,7 @@ void TexColumnsApp::OnMouseMove(WPARAM btnState, int x, int y)
 }
 
  
-void TexColumnsApp::OnKeyPressed(const GameTimer& gt, WPARAM key)
+void CGLAB::OnKeyPressed(const GameTimer& gt, WPARAM key)
 {
 	if (GET_WHEEL_DELTA_WPARAM(key) > 0 && !ImGui::GetIO().WantCaptureMouse)
 	{
@@ -556,7 +395,7 @@ void TexColumnsApp::OnKeyPressed(const GameTimer& gt, WPARAM key)
 	
 }
 
-void TexColumnsApp::OnKeyReleased(const GameTimer& gt, WPARAM key)
+void CGLAB::OnKeyReleased(const GameTimer& gt, WPARAM key)
 {
 	
 	switch (key)
@@ -567,12 +406,12 @@ void TexColumnsApp::OnKeyReleased(const GameTimer& gt, WPARAM key)
 	}
 }
 
-std::wstring TexColumnsApp::GetCamSpeed()
+std::wstring CGLAB::GetCamSpeed()
 {
 	return std::to_wstring(cam.GetSpeed());
 }
  
-void TexColumnsApp::UpdateCamera(const GameTimer& gt)
+void CGLAB::UpdateCamera(const GameTimer& gt)
 {
 	// Convert Spherical to Cartesian coordinates.
 	float x = mRadius * sinf(mPhi) * cosf(mTheta);
@@ -596,17 +435,16 @@ void TexColumnsApp::UpdateCamera(const GameTimer& gt)
 
 
 
-void TexColumnsApp::AnimateMaterials(const GameTimer& gt)
+void CGLAB::AnimateMaterials(const GameTimer& gt)
 {
 	
 }
 
-void TexColumnsApp::UpdateObjectCBs(const GameTimer& gt)
+void CGLAB::UpdateObjectCBs(const GameTimer& gt)
 {
 	auto currObjectCB = mCurrFrameResource->ObjectCB.get();
 	for(auto& e : mAllRitems)
 	{
-
 		// Only update the cbuffer data if the constants have changed.  
 		// This needs to be tracked per frame resource.
 		if(e->NumFramesDirty > 0)
@@ -626,8 +464,22 @@ void TexColumnsApp::UpdateObjectCBs(const GameTimer& gt)
 		}
 	}
 }
-
-void TexColumnsApp::UpdateLightCBs(const GameTimer& gt)
+void CGLAB::UpdateTerrainCBs(const GameTimer& gt)
+{
+	auto currTileCB = mCurrFrameResource->TerrainCB.get();
+	for (auto& t : m_terrainSystem->GetAllTiles())
+	{
+		TerrainTileConstants tileConstants;
+		tileConstants.TilePosition = t->worldPos;
+		tileConstants.TileSize = t->tileSize;
+		tileConstants.mapSize = m_terrainSystem->m_worldSize;
+		tileConstants.hScale = heightScale;
+		currTileCB->CopyData(t->tileIndex, tileConstants);
+		
+		t->NumFramesDirty--;
+	}
+}
+void CGLAB::UpdateLightCBs(const GameTimer& gt)
 {
 	
 	auto currLightCB = mCurrFrameResource->LightCB.get();
@@ -695,7 +547,7 @@ void TexColumnsApp::UpdateLightCBs(const GameTimer& gt)
 	}
 }
 
-void TexColumnsApp::UpdateMaterialCBs(const GameTimer& gt)
+void CGLAB::UpdateMaterialCBs(const GameTimer& gt)
 {
 	auto currMaterialCB = mCurrFrameResource->MaterialCB.get();
 	for(auto& e : mMaterials)
@@ -722,7 +574,7 @@ void TexColumnsApp::UpdateMaterialCBs(const GameTimer& gt)
 	}
 }
 
-void TexColumnsApp::UpdateMainPassCB(const GameTimer& gt)
+void CGLAB::UpdateMainPassCB(const GameTimer& gt)
 {
 	XMMATRIX view = XMLoadFloat4x4(&mView);
 	XMMATRIX proj = XMLoadFloat4x4(&mProj);
@@ -742,14 +594,14 @@ void TexColumnsApp::UpdateMainPassCB(const GameTimer& gt)
 	mMainPassCB.RenderTargetSize = XMFLOAT2((float)mClientWidth, (float)mClientHeight);
 	mMainPassCB.InvRenderTargetSize = XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
 	mMainPassCB.NearZ = 1.0f;
-	mMainPassCB.FarZ = 1000.0f;
+	mMainPassCB.FarZ = 10000.0f;
 	mMainPassCB.TotalTime = gt.TotalTime();
 	mMainPassCB.DeltaTime = gt.DeltaTime();
 	auto currPassCB = mCurrFrameResource->PassCB.get();
 	currPassCB->CopyData(0, mMainPassCB);
 }
 
-void TexColumnsApp::CreateGBuffer()
+void CGLAB::CreateGBuffer()
 {
 	// Форматы
 	const DXGI_FORMAT positionFormat = DXGI_FORMAT_R32G32B32A32_FLOAT;
@@ -844,7 +696,7 @@ void TexColumnsApp::CreateGBuffer()
 }
 
 
-void TexColumnsApp::LoadAllTextures()
+void CGLAB::LoadAllTextures()
 {
 	// MEGA COSTYL
 	for (const auto& entry : std::filesystem::directory_iterator("../Textures/textures"))
@@ -861,7 +713,7 @@ void TexColumnsApp::LoadAllTextures()
 	}
 }
 
-void TexColumnsApp::LoadTexture(const std::string& name)
+void CGLAB::LoadTexture(const std::string& name)
 {
 	auto tex = std::make_unique<Texture>();
 	tex->Name = name;
@@ -875,7 +727,7 @@ void TexColumnsApp::LoadTexture(const std::string& name)
 	mTextures[name] = std::move(tex);
 }
 
-void TexColumnsApp::BuildRootSignature()
+void CGLAB::BuildRootSignature()
 {
 	CD3DX12_DESCRIPTOR_RANGE diffuseRange;
 	diffuseRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0); // Диффузная текстура в регистре t0
@@ -919,9 +771,59 @@ void TexColumnsApp::BuildRootSignature()
         serializedRootSig->GetBufferSize(),
         IID_PPV_ARGS(mRootSignature.GetAddressOf())));
 }
+// terrain RS
+void CGLAB::BuildTerrainRootSignature()
+{
+	CD3DX12_DESCRIPTOR_RANGE heightRange;
+	heightRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0); // Диффузная текстура в регистре t0
+
+	CD3DX12_DESCRIPTOR_RANGE diffuseRange;
+	diffuseRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1); // Диффузная текстура в регистре t0
+
+	CD3DX12_DESCRIPTOR_RANGE normalRange;
+	normalRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2);  // Нормальная карта в регистре t1
+
+	// Root parameter can be a table, root descriptor or root constants.
+	CD3DX12_ROOT_PARAMETER slotRootParameter[7];
+
+	// Perfomance TIP: Order from most frequent to least frequent.
+	slotRootParameter[0].InitAsDescriptorTable(1, &heightRange, D3D12_SHADER_VISIBILITY_ALL);
+	slotRootParameter[1].InitAsDescriptorTable(1, &diffuseRange, D3D12_SHADER_VISIBILITY_ALL);
+	slotRootParameter[2].InitAsDescriptorTable(1, &normalRange, D3D12_SHADER_VISIBILITY_ALL);
+
+	slotRootParameter[3].InitAsConstantBufferView(0); // register b0
+	slotRootParameter[4].InitAsConstantBufferView(1); // register b1
+	slotRootParameter[5].InitAsConstantBufferView(2); // register b2
+	slotRootParameter[6].InitAsConstantBufferView(3); // register b3
+
+	auto staticSamplers = GetStaticSamplers();
+
+	// A root signature is an array of root parameters.
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(7, slotRootParameter,
+		(UINT)staticSamplers.size(), staticSamplers.data(),
+		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+	// create a root signature with a single slot which points to a descriptor range consisting of a single constant buffer
+	ComPtr<ID3DBlob> serializedRootSig = nullptr;
+	ComPtr<ID3DBlob> errorBlob = nullptr;
+	HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1,
+		serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+	if (errorBlob != nullptr)
+	{
+		::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+	}
+	ThrowIfFailed(hr);
+
+	ThrowIfFailed(md3dDevice->CreateRootSignature(
+		0,
+		serializedRootSig->GetBufferPointer(),
+		serializedRootSig->GetBufferSize(),
+		IID_PPV_ARGS(mTerrainRootSignature.GetAddressOf())));
+}
 
 // build lighting root signature 
-void TexColumnsApp::BuildLightingRootSignature()
+void CGLAB::BuildLightingRootSignature()
 {
 
 
@@ -970,7 +872,7 @@ void TexColumnsApp::BuildLightingRootSignature()
 }
 
 // shadow root signature 
-void TexColumnsApp::BuildShadowPassRootSignature()
+void CGLAB::BuildShadowPassRootSignature()
 {
 	CD3DX12_ROOT_PARAMETER slotRootParameter[2];
 
@@ -1001,7 +903,7 @@ void TexColumnsApp::BuildShadowPassRootSignature()
 }
 
 
-void TexColumnsApp::CreatePointLight(XMFLOAT3 pos, XMFLOAT3 color, float faloff_start, float faloff_end, float strength)
+void CGLAB::CreatePointLight(XMFLOAT3 pos, XMFLOAT3 color, float faloff_start, float faloff_end, float strength)
 {
 	Light light;
 	light.LightCBIndex = mLights.size();
@@ -1015,7 +917,7 @@ void TexColumnsApp::CreatePointLight(XMFLOAT3 pos, XMFLOAT3 color, float faloff_
 	XMStoreFloat4x4(&light.gWorld, XMMatrixTranspose(world));
 	mLights.push_back(light);
 }
-void TexColumnsApp::CreateSpotLight(XMFLOAT3 pos, XMFLOAT3 rot, XMFLOAT3 color, float faloff_start, float faloff_end, float strength, float spotpower)
+void CGLAB::CreateSpotLight(XMFLOAT3 pos, XMFLOAT3 rot, XMFLOAT3 color, float faloff_start, float faloff_end, float strength, float spotpower)
 {
 	Light light;
 	light.LightCBIndex = mLights.size();
@@ -1032,7 +934,7 @@ void TexColumnsApp::CreateSpotLight(XMFLOAT3 pos, XMFLOAT3 rot, XMFLOAT3 color, 
 	mLights.push_back(light);
 }
 
-void TexColumnsApp::BuildLights()
+void CGLAB::BuildLights()
 {
 	// directional
 	Light dir;
@@ -1040,8 +942,9 @@ void TexColumnsApp::BuildLights()
 	dir.Position = { 0,300,0 };
 	dir.Direction = { 0, -1, 0 };
 	dir.Color = { 1,1,1 };
-	dir.Strength = 1.0;
+	dir.Strength = 1;
 	dir.type = 2;
+	dir.enablePCF = 1;
 	dir.LightUp = XMVectorSet(0, 0, -1, 0);
 	auto& world = XMMatrixScaling(1000,1000,1000);
 	XMStoreFloat4x4(&dir.gWorld, XMMatrixTranspose(world));
@@ -1063,7 +966,7 @@ void TexColumnsApp::BuildLights()
 	CreateSpotLight({ -5,3,30 }, { 0,0,-90 }, { 1,1,1 }, 1, 30, 6, 1);
 }
 
-void TexColumnsApp::SetLightShapes()
+void CGLAB::SetLightShapes()
 {
 	for (auto& light : mLights)
 	{
@@ -1081,7 +984,7 @@ void TexColumnsApp::SetLightShapes()
 	mLights;
 }
 
-void TexColumnsApp::CreateMaterial(std::string _name, int _CBIndex, int _SRVDiffIndex, int _SRVNMapIndex, XMFLOAT4 _DiffuseAlbedo, XMFLOAT3 _FresnelR0, float _Roughness)
+void CGLAB::CreateMaterial(std::string _name, int _CBIndex, int _SRVDiffIndex, int _SRVNMapIndex, XMFLOAT4 _DiffuseAlbedo, XMFLOAT3 _FresnelR0, float _Roughness)
 {
 	
 	auto material = std::make_unique<Material>();
@@ -1095,7 +998,7 @@ void TexColumnsApp::CreateMaterial(std::string _name, int _CBIndex, int _SRVDiff
 	mMaterials[_name] = std::move(material);
 }
 
-void TexColumnsApp::BuildShadowMapViews()
+void CGLAB::BuildShadowMapViews()
 {
 	D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc = {};
 	dsvHeapDesc.NumDescriptors = 2; // For one shadow map
@@ -1165,7 +1068,7 @@ void TexColumnsApp::BuildShadowMapViews()
 	
 }
 
-void TexColumnsApp::BuildDescriptorHeaps()
+void CGLAB::BuildDescriptorHeaps()
 {
 	//
 	// Create the SRV heap.
@@ -1246,7 +1149,7 @@ void TexColumnsApp::BuildDescriptorHeaps()
 	}
 }
 
-void TexColumnsApp::BuildShadersAndInputLayout()
+void CGLAB::BuildShadersAndInputLayout()
 {
 	const D3D_SHADER_MACRO alphaTestDefines[] =
 	{
@@ -1263,6 +1166,8 @@ void TexColumnsApp::BuildShadersAndInputLayout()
 	mShaders["lightingPS"] = d3dUtil::CompileShader(L"Shaders\\LightingPass.hlsl", nullptr, "PS", "ps_5_0");
 	mShaders["lightingPSDebug"] = d3dUtil::CompileShader(L"Shaders\\LightingPass.hlsl", nullptr, "PS_debug", "ps_5_0");
 	mShaders["shadowVS"] = d3dUtil::CompileShader(L"Shaders\\ShadowMap.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["terrainVS"] = d3dUtil::CompileShader(L"Shaders\\Terrain.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["terrainPS"] = d3dUtil::CompileShader(L"Shaders\\Terrain.hlsl", nullptr, "PS", "ps_5_0");
 
     mInputLayout =
     {
@@ -1272,7 +1177,7 @@ void TexColumnsApp::BuildShadersAndInputLayout()
         { "TANGENT", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
     };
 }
-void TexColumnsApp::BuildCustomMeshGeometry(std::string name, UINT& meshVertexOffset, UINT& meshIndexOffset, UINT& prevVertSize, UINT& prevIndSize, std::vector<Vertex>& vertices, std::vector<std::uint16_t>& indices, MeshGeometry* Geo)
+void CGLAB::BuildCustomMeshGeometry(std::string name, UINT& meshVertexOffset, UINT& meshIndexOffset, UINT& prevVertSize, UINT& prevIndSize, std::vector<Vertex>& vertices, std::vector<std::uint16_t>& indices, MeshGeometry* Geo)
 {
 	std::vector<GeometryGenerator::MeshData> meshDatas; // Это твоя структура для хранения вершин и индексов
 
@@ -1429,7 +1334,7 @@ std::vector<std::string> ReadModels(std::string filepath)
 	return filenames;
 }
 
-void TexColumnsApp::BuildShapeGeometry()
+void CGLAB::BuildShapeGeometry()
 {
     GeometryGenerator geoGen;
 	GeometryGenerator::MeshData box = geoGen.CreateBox(1.0f, 1.0f, 1.0f, 0);
@@ -1542,7 +1447,7 @@ void TexColumnsApp::BuildShapeGeometry()
 	const UINT vbByteSize = (UINT)vertices.size() * sizeof(Vertex);
 	const UINT ibByteSize = (UINT)indices.size() * sizeof(std::uint16_t);
 
-
+	BuildTerrainGeometry();
 
 
 	ThrowIfFailed(D3DCreateBlob(vbByteSize, &geo->VertexBufferCPU));
@@ -1570,40 +1475,9 @@ void TexColumnsApp::BuildShapeGeometry()
 	mGeometries[geo->Name] = std::move(geo);
 }
 
-void TexColumnsApp::BuildPSOs()
+void CGLAB::BuildPSOs()
 {
-    D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDesc;
-
-	//
-	// PSO for opaque objects.
-	//
-    ZeroMemory(&opaquePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
-	opaquePsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
-	opaquePsoDesc.pRootSignature = mRootSignature.Get();
-	opaquePsoDesc.VS = 
-	{ 
-		reinterpret_cast<BYTE*>(mShaders["standardVS"]->GetBufferPointer()), 
-		mShaders["standardVS"]->GetBufferSize()
-	};
-	opaquePsoDesc.PS = 
-	{ 
-		reinterpret_cast<BYTE*>(mShaders["opaquePS"]->GetBufferPointer()),
-		mShaders["opaquePS"]->GetBufferSize()
-	};
-	opaquePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-	opaquePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID; // Изменяем Solid на Wireframe
-
-	opaquePsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-	opaquePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-	opaquePsoDesc.SampleMask = UINT_MAX;
-	opaquePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-	opaquePsoDesc.NumRenderTargets = 1;
-	opaquePsoDesc.RTVFormats[0] = mBackBufferFormat;
-	opaquePsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
-	opaquePsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
-	opaquePsoDesc.DSVFormat = mDepthStencilFormat;
-    ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaquePsoDesc, IID_PPV_ARGS(&mPSOs["opaque"])));
-
+   
 	// Geometry pass PSO
 
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC gbPsoDesc = {};
@@ -1714,18 +1588,7 @@ void TexColumnsApp::BuildPSOs()
 		reinterpret_cast<BYTE*>(mShaders["shadowVS"]->GetBufferPointer()),
 		mShaders["shadowVS"]->GetBufferSize()
 	};
-	// shadowPsoDesc.PS can be omitted if no pixel shader (Null PS)
-	// If you have an alpha testing PS:
-	// shadowPsoDesc.PS =
-	// {
-	//    reinterpret_cast<BYTE*>(mShaders["shadowPS"]->GetBufferPointer()),
-	//    mShaders["shadowPS"]->GetBufferSize()
-	// };
 	shadowPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-	// You might need to tweak RasterizerState for shadow acne (DepthBias, SlopeScaledDepthBias)
-	// e.g., shadowPsoDesc.RasterizerState.DepthBias = 100000; // Experiment with values
-	// shadowPsoDesc.RasterizerState.DepthBiasClamp = 0.0f;
-	// shadowPsoDesc.RasterizerState.SlopeScaledDepthBias = 1.0f; // Experiment
 
 	shadowPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT); // No color writing
 	shadowPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
@@ -1740,17 +1603,49 @@ void TexColumnsApp::BuildPSOs()
 
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&shadowPsoDesc, IID_PPV_ARGS(&mPSOs["shadow_map"])));
 
+	// PSO для terrain
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC terrainPsoDesc = {};
+	terrainPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
+	terrainPsoDesc.pRootSignature = mTerrainRootSignature.Get();
+	terrainPsoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["terrainVS"]->GetBufferPointer()),
+		mShaders["terrainVS"]->GetBufferSize()
+	};
+	terrainPsoDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["terrainPS"]->GetBufferPointer()),
+		mShaders["terrainPS"]->GetBufferSize()
+	};
+	terrainPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+	terrainPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+	terrainPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+	terrainPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+	terrainPsoDesc.SampleMask = UINT_MAX;
+	terrainPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	terrainPsoDesc.NumRenderTargets = 3; // G-Buffer
+	terrainPsoDesc.RTVFormats[0] = albedoFormat;
+	terrainPsoDesc.RTVFormats[1] = normalFormat;
+	terrainPsoDesc.RTVFormats[2] = positionFormat;
+	terrainPsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
+	terrainPsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
+	terrainPsoDesc.DSVFormat = mDepthStencilFormat;
 
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&terrainPsoDesc, IID_PPV_ARGS(&mPSOs["terrain"])));
+	// TERRAIN WIREFRAME
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC terrainPsoDescWireframe = terrainPsoDesc;
+	terrainPsoDescWireframe.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&terrainPsoDescWireframe, IID_PPV_ARGS(&mPSOs["terrainWIRE"])));
 }
 
-void TexColumnsApp::BuildFrameResources()
+void CGLAB::BuildFrameResources()
 {
 	FlushCommandQueue();
 	mFrameResources.clear();
     for(int i = 0; i < gNumFrameResources; ++i)
     {
         mFrameResources.push_back(std::make_unique<FrameResource>(md3dDevice.Get(),
-            1, (UINT)mAllRitems.size(), (UINT)mMaterials.size(),(UINT)mLights.size()));
+            1, (UINT)mAllRitems.size(), (UINT)mMaterials.size(),(UINT)mLights.size(),m_terrainSystem->GetAllTiles().size()));
     }
 	mCurrFrameResourceIndex = 0;
 	mCurrFrameResource = mFrameResources[mCurrFrameResourceIndex].get();
@@ -1762,9 +1657,13 @@ void TexColumnsApp::BuildFrameResources()
 	{
 		kv.second->NumFramesDirty = gNumFrameResources;
 	}
+	for (auto& t : m_terrainSystem->GetAllTiles())
+	{
+		t->NumFramesDirty = gNumFrameResources;
+	}
 }
 
-void TexColumnsApp::BuildMaterials()
+void CGLAB::BuildMaterials()
 {
 	CreateMaterial("NiggaMat",0, TexOffsets["textures/texture"], TexOffsets["textures/texture_nm"], XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f), XMFLOAT3(0.05f, 0.05f, 0.05f), 0.3f);
 	CreateMaterial("eye",0, TexOffsets["textures/eye"], TexOffsets["textures/eye_nm"], XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f), XMFLOAT3(0.05f, 0.05f, 0.05f), 0.3f);
@@ -1772,8 +1671,16 @@ void TexColumnsApp::BuildMaterials()
 	CreateMaterial("map2",0, TexOffsets["textures/HeightMap"], TexOffsets["textures/HeightMap"], XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f), XMFLOAT3(0.05f, 0.05f, 0.05f), 0.3f);
 	//CreateMaterial("bricks",0, TexOffsets["textures/bricks"], TexOffsets["textures/bricks"], XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f), XMFLOAT3(0.05f, 0.05f, 0.05f), 0.3f);
 	CreateMaterial("prikol1",0, TexOffsets["textures/prikol2"], TexOffsets["textures/prikol2"], XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f), XMFLOAT3(0.05f, 0.05f, 0.05f), 0.3f);
+
+	CreateMaterial("terrainMat", (int)mMaterials.size(),
+		TexOffsets["textures/hMapDiff"],
+		TexOffsets["textures/hMapNM"],
+		XMFLOAT4(0.8f, 0.8f, 0.8f, 1.0f),
+		XMFLOAT3(0.02f, 0.02f, 0.02f),
+		0.8f);
+
 }
-void TexColumnsApp::RenderCustomMesh(std::string unique_name, std::string meshname, std::string materialName, XMFLOAT3 Scale, XMFLOAT3 Rotation, XMFLOAT3 Position)
+void CGLAB::RenderCustomMesh(std::string unique_name, std::string meshname, std::string materialName, XMFLOAT3 Scale, XMFLOAT3 Rotation, XMFLOAT3 Position)
 {
 	for (int i = 0;i < ObjectsMeshCount[meshname];i++)
 	{
@@ -1810,7 +1717,7 @@ void TexColumnsApp::RenderCustomMesh(std::string unique_name, std::string meshna
 
 
 
-void TexColumnsApp::BuildRenderItems()
+void CGLAB::BuildRenderItems()
 {
 	/*auto boxRitem = std::make_unique<RenderItem>();
 	boxRitem->Name = "box";
@@ -1825,22 +1732,59 @@ void TexColumnsApp::BuildRenderItems()
 	boxRitem->BaseVertexLocation = boxRitem->Geo->DrawArgs["box"].BaseVertexLocation;
 	mAllRitems.push_back(std::move(boxRitem));*/
 
-	RenderCustomMesh("building", "sponza", "", XMFLOAT3(0.07, 0.07, 0.07), XMFLOAT3(0, 3.14 / 2, 0), XMFLOAT3(0, 0, 0));
+	//RenderCustomMesh("building", "sponza", "", XMFLOAT3(0.07, 0.07, 0.07), XMFLOAT3(0, 3.14 / 2, 0), XMFLOAT3(0, 0, 0));
 	RenderCustomMesh("nigga", "negr", "NiggaMat", XMFLOAT3(3, 3, 3), XMFLOAT3(0, 3.14, 0), XMFLOAT3(0, 3, 0));
 	RenderCustomMesh("nigga2", "negr", "NiggaMat", XMFLOAT3(3, 3, 3), XMFLOAT3(0, -3.14 / 2, 0), XMFLOAT3(-10, 3, 30));
 	RenderCustomMesh("eyeL", "left", "eye", XMFLOAT3(3, 3, 3), XMFLOAT3(0, 3.14, 0), XMFLOAT3(0.6,3.87,1.1));
 	RenderCustomMesh("eyeR", "right", "eye", XMFLOAT3(3, 3, 3), XMFLOAT3(0, 3.14, 0), XMFLOAT3(-0.6, 3.87, 1.1));
+	
+	std::vector<std::shared_ptr<TerrainTile>>& allTiles = m_terrainSystem->GetAllTiles();
+	// Теперь, для каждого видимого тайла, создаем или обновляем его RenderItem.
+	int a = 0;
+	for (auto& tile : allTiles)
+	{
+		auto renderItem = std::make_unique<RenderItem>();
+		renderItem->World = MathHelper::Identity4x4();
+		renderItem->TexTransform = MathHelper::Identity4x4();
+		renderItem->ObjCBIndex = mAllRitems.size(); // Присваиваем индекс позже
+		renderItem->Mat = mMaterials["terrainMat"].get(); // Используем материал для травы
+		renderItem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
+		renderItem->Name = "TILE";
+		// Выбираем LOD-уровень в зависимости от глубины узла квадродерева.
+		int lodIndex = tile->lodLevel;
+		std::string lodName = "tile_" + std::to_string(tile->tileIndex) + "_LOD_" + std::to_string(lodIndex);
+		renderItem->Geo = mGeometries["terrainGeo"].get();
+		renderItem->IndexCount = renderItem->Geo->DrawArgs[lodName].IndexCount;
+		renderItem->StartIndexLocation = renderItem->Geo->DrawArgs[lodName].StartIndexLocation;
+		renderItem->BaseVertexLocation = renderItem->Geo->DrawArgs[lodName].BaseVertexLocation;
+
+		// Обновляем мировую трансформацию тайла
+		XMMATRIX translation = XMMatrixTranslation(tile->worldPos.x, tile->worldPos.y, tile->worldPos.z);
+		XMStoreFloat4x4(&renderItem->World, translation);
+
+		tile->renderItemIndex = mAllRitems.size() + a;
+		mAllRitems.push_back(std::move(renderItem));
+	}
+
 	BuildFrameResources();
 
+
+	// Добавляем все terrain render items в opaque список
 	for (auto& e : mAllRitems)
 	{
+		if (e->Name.find("TILE") != std::string::npos)
+		{
+			m_visibleTerrItems.push_back(e.get());
+			continue;
+		}
 		mOpaqueRitems.push_back(e.get());
 	}
+	
 }
 
 
 
-void TexColumnsApp::DrawSceneToShadowMap()
+void CGLAB::DrawSceneToShadowMap()
 {
 	UINT shadowCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(PassShadowConstants));
 	for (auto light : mLights)
@@ -1894,13 +1838,11 @@ void TexColumnsApp::DrawSceneToShadowMap()
 	}
 
 }
-void TexColumnsApp::DeferredDraw(const GameTimer& gt)
+void CGLAB::DeferredDraw(const GameTimer& gt)
 {
 	auto cmdListAlloc = mCurrFrameResource->CmdListAlloc;
 	ThrowIfFailed(cmdListAlloc->Reset());
 	ThrowIfFailed(mCommandList->Reset(cmdListAlloc.Get(), nullptr));
-
-
 	// draw shadow maps 
 	DrawSceneToShadowMap();
 
@@ -1934,14 +1876,14 @@ void TexColumnsApp::DeferredDraw(const GameTimer& gt)
 		SwapChainBufferCount + 2, // Начинаем после SwapChain
 		mRtvDescriptorSize
 	) };
-	XMFLOAT4 c(mLights[0].Color.x, mLights[0].Color.y, mLights[0].Color.z,1);
+	XMFLOAT4 c(mLights[0].Color.x, mLights[0].Color.y, mLights[0].Color.z, 1);
 	XMVECTORF32 a;
 	a.v = XMLoadFloat4(&c);
 	for (int i = 0; i < 3; ++i)
 		mCommandList->ClearRenderTargetView(rtvHs[i], a, 0, nullptr);
 	mCommandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 	mCommandList->OMSetRenderTargets(3, rtvHs, true, &DepthStencilView());
-	
+
 	ID3D12DescriptorHeap* heaps[] = { mSrvDescriptorHeap.Get() /*для текстур*/ };
 	mCommandList->SetDescriptorHeaps(_countof(heaps), heaps);
 	mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
@@ -1950,6 +1892,37 @@ void TexColumnsApp::DeferredDraw(const GameTimer& gt)
 	mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
 
 	DrawRenderItems(mCommandList.Get(), mOpaqueRitems);
+	m_visibleTerrItems.clear();
+	m_visibleTerrainTiles.clear();
+	if (!dynamicLOD)
+	{
+		for (auto& t : m_terrainSystem->GetAllTiles())
+		{
+			if (t->lodLevel == visibleTile)
+				m_visibleTerrItems.push_back(mAllRitems[t->renderItemIndex].get());
+		}
+	}
+	else
+	{
+		m_terrainSystem->GetVisibleTiles(m_visibleTerrainTiles);
+		for (auto& t : m_visibleTerrainTiles)
+		{
+			m_visibleTerrItems.push_back(mAllRitems[t->renderItemIndex].get());
+		}
+	}
+	
+	if (!m_visibleTerrItems.empty())
+	{
+		// Переключаемся на terrain PSO
+		if (wireframe)
+			mCommandList->SetPipelineState(mPSOs["terrainWIRE"].Get());
+		else
+			mCommandList->SetPipelineState(mPSOs["terrain"].Get());
+		mCommandList->SetGraphicsRootSignature(mTerrainRootSignature.Get());
+		mCommandList->SetGraphicsRootConstantBufferView(4, passCB->GetGPUVirtualAddress());
+		std::cout << "Rendering " << m_visibleTerrItems.size() << " terrain tiles" << std::endl;
+		DrawTilesRenderItems(mCommandList.Get(), m_visibleTerrItems);
+	}
 
 
 	D3D12_RESOURCE_BARRIER barrier[3] = {
@@ -1962,20 +1935,20 @@ void TexColumnsApp::DeferredDraw(const GameTimer& gt)
 	};
 	mCommandList->ResourceBarrier(3, barrier);
 	// ================================================
-	
+
 	// ===============LIGHTING PASS=====================
 
 	mCommandList->SetPipelineState(mPSOs["lighting"].Get());
-	
+
 	mCommandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
 
 	mCommandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::Black, 0, nullptr);
-	
+
 
 
 
 	mCommandList->SetGraphicsRootSignature(mLightingRootSignature.Get());
-	
+
 	mCommandList->SetDescriptorHeaps(1, mSrvDescriptorHeap.GetAddressOf());
 
 
@@ -1992,8 +1965,8 @@ void TexColumnsApp::DeferredDraw(const GameTimer& gt)
 	mCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 
 
-	
-	
+
+
 	UINT lightCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(LightConstants));
 	// draw light
 	for (auto& light : mLights)
@@ -2012,7 +1985,7 @@ void TexColumnsApp::DeferredDraw(const GameTimer& gt)
 			mCommandList->SetGraphicsRootDescriptorTable(6, shadowSrvHandle); // t3
 		}
 		// if directional or ambient -> rendering full screen quad
-		if (light.type == 0 || light.type == 2 )
+		if (light.type == 0 || light.type == 2)
 		{
 			mCommandList->SetPipelineState(mPSOs["lightingQUAD"].Get());
 			mCommandList->DrawInstanced(3, 1, 0, 0);
@@ -2040,9 +2013,9 @@ void TexColumnsApp::DeferredDraw(const GameTimer& gt)
 
 			mCommandList->DrawIndexedInstanced(light.ShapeGeo.IndexCount, 1, light.ShapeGeo.StartIndexLocation, light.ShapeGeo.BaseVertexLocation, 0);
 		}
-		
+
 	}
-	
+
 
 	// После освещения:
 	D3D12_RESOURCE_BARRIER revertBarrier[3] = {
@@ -2060,6 +2033,8 @@ void TexColumnsApp::DeferredDraw(const GameTimer& gt)
 	mCommandList->ResourceBarrier(1, &presentBarrier);
 
 
+		
+	
 	// Done recording commands.
 	ThrowIfFailed(mCommandList->Close());
 
@@ -2078,13 +2053,12 @@ void TexColumnsApp::DeferredDraw(const GameTimer& gt)
 	// Because we are on the GPU timeline, the new fence point won't be 
 	// set until the GPU finishes processing all the commands prior to this Signal().
 	mCommandQueue->Signal(mFence.Get(), mCurrentFence);
-
 }
 
 
 
 
-void TexColumnsApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+void CGLAB::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
 {
     UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
     UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
@@ -2117,9 +2091,44 @@ void TexColumnsApp::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const st
     }
 }
 
+void CGLAB::DrawTilesRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+{
+	UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+	UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
 
+	auto objectCB = mCurrFrameResource->ObjectCB->Resource();
+	auto matCB = mCurrFrameResource->MaterialCB->Resource();
 
-std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> TexColumnsApp::GetStaticSamplers()
+	// For each render item...
+	for (size_t i = 0; i < ritems.size(); ++i)
+	{
+		auto ri = ritems[i];
+		cmdList->IASetVertexBuffers(0, 1, &ri->Geo->VertexBufferView());
+		cmdList->IASetIndexBuffer(&ri->Geo->IndexBufferView());
+		cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
+
+		CD3DX12_GPU_DESCRIPTOR_HANDLE heightHandle(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+		heightHandle.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+		cmdList->SetGraphicsRootDescriptorTable(0, heightHandle);
+		CD3DX12_GPU_DESCRIPTOR_HANDLE diffuseHandle(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+		diffuseHandle.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+		cmdList->SetGraphicsRootDescriptorTable(1, diffuseHandle);
+		CD3DX12_GPU_DESCRIPTOR_HANDLE normalHandle(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+		normalHandle.Offset(ri->Mat->NormalSrvHeapIndex, mCbvSrvDescriptorSize);
+		cmdList->SetGraphicsRootDescriptorTable(2, normalHandle);
+
+		D3D12_GPU_VIRTUAL_ADDRESS objCBAddress = objectCB->GetGPUVirtualAddress() + ri->ObjCBIndex * objCBByteSize;
+		D3D12_GPU_VIRTUAL_ADDRESS matCBAddress = matCB->GetGPUVirtualAddress() + ri->Mat->MatCBIndex * matCBByteSize;
+
+		cmdList->SetGraphicsRootConstantBufferView(3, objCBAddress);
+		cmdList->SetGraphicsRootConstantBufferView(5, matCBAddress);
+		auto terrCB = mCurrFrameResource->TerrainCB->Resource();
+		mCommandList->SetGraphicsRootConstantBufferView(6, terrCB->GetGPUVirtualAddress());
+		cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
+	}
+}
+
+std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> CGLAB::GetStaticSamplers()
 {
 	// Applications usually only need a handful of samplers.  So just define them all up front
 	// and keep them available as part of the root signature.  
