@@ -8,9 +8,11 @@
 #include "imgui.h"
 Camera cam;
 static int imguiID = 0;
-int visibleTile = 0;
+int renderlodlevel = 0;
+int tileRenderIndex = 0;
 static bool wireframe = false;
 static bool dynamicLOD = false;
+static bool renderOneTile = false;
 float heightScale;
 #pragma comment(lib, "d3dcompiler.lib")
 #pragma comment(lib, "D3D12.lib")
@@ -95,12 +97,9 @@ bool CGLAB::Initialize()
 	// so we have to query this information.
     mCbvSrvDescriptorSize = md3dDevice->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
 
-	m_terrainSystem = std::make_unique<TerrainSystem>();
-	m_terrainSystem->Initialize(md3dDevice.Get(), L"../Textures/textures/hMap.dds",
-		8192, 4); 
-
  
 	LoadAllTextures();
+
     BuildRootSignature();
     BuildTerrainRootSignature();
     BuildLightingRootSignature();
@@ -108,6 +107,9 @@ bool CGLAB::Initialize()
 	BuildLights();
 	BuildShadowMapViews();
 	BuildDescriptorHeaps();
+	m_terrainSystem = std::make_unique<TerrainSystem>();
+	m_terrainSystem->Initialize(md3dDevice.Get(), TexOffsets["textures/hMap"],
+		8192, 6);
     BuildShapeGeometry();
 	SetLightShapes();
     BuildShadersAndInputLayout();
@@ -174,7 +176,7 @@ void CGLAB::RenderIMGUI()
 	{
 		if (ImGui::BeginTabItem("Objects"))
 		{
-			for (auto& rItem : mAllRitems)
+			for (auto& rItem : mOpaqueRitems)
 			{
 				if (rItem->Name != "building")
 				{
@@ -266,15 +268,19 @@ void CGLAB::RenderIMGUI()
 			{
 				ImGui::Text("Visible Terrain Tiles: %d", (int)m_visibleTerrainTiles.size());
 				ImGui::SliderFloat("Height Scale", &heightScale, 1.0f, 200.0f);
-				ImGui::SliderInt("LodLevel", &visibleTile, 0, 4);
+				ImGui::SliderInt("LodLevel", &renderlodlevel, 0, 6);
 				ImGui::Checkbox("Wireframe", &wireframe);
 				ImGui::Checkbox("DynamicLOD", &dynamicLOD);
+				ImGui::Separator();
+				ImGui::Text("One Tile Render mod");
+				ImGui::Checkbox("Render One Tile", &renderOneTile);
+				ImGui::SliderInt("Tile Index", &tileRenderIndex,0,m_terrainSystem->GetAllTiles().size());
 
 			}
 			ImGui::EndTabItem();
 		}
-		mLights[1].Strength = mLights[0].Strength / 1.5; // approximately calculated, looks good tbh
-		mLights[1].Color = mLights[0].Color;
+		//mLights[1].Strength = mLights[0].Strength / 1.5; // approximately calculated, looks good tbh
+		//mLights[1].Color = mLights[0].Color;
 		ImGui::EndTabBar();
 	}
 	ImGui::End();
@@ -1880,7 +1886,7 @@ void CGLAB::DeferredDraw(const GameTimer& gt)
 	XMVECTORF32 a;
 	a.v = XMLoadFloat4(&c);
 	for (int i = 0; i < 3; ++i)
-		mCommandList->ClearRenderTargetView(rtvHs[i], a, 0, nullptr);
+		mCommandList->ClearRenderTargetView(rtvHs[i], Colors::LightSteelBlue, 0, nullptr);
 	mCommandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 	mCommandList->OMSetRenderTargets(3, rtvHs, true, &DepthStencilView());
 
@@ -1894,12 +1900,25 @@ void CGLAB::DeferredDraw(const GameTimer& gt)
 	DrawRenderItems(mCommandList.Get(), mOpaqueRitems);
 	m_visibleTerrItems.clear();
 	m_visibleTerrainTiles.clear();
+	// costyl
+	std::vector<TerrainTile*>visibleTiles;
 	if (!dynamicLOD)
 	{
-		for (auto& t : m_terrainSystem->GetAllTiles())
+		if (!renderOneTile)
 		{
-			if (t->lodLevel == visibleTile)
-				m_visibleTerrItems.push_back(mAllRitems[t->renderItemIndex].get());
+			for (auto& t : m_terrainSystem->GetAllTiles())
+			{
+				if (t->lodLevel == renderlodlevel)
+					visibleTiles.push_back(t.get());
+			}
+		}
+		else
+		{
+			for (auto& t : m_terrainSystem->GetAllTiles())
+			{
+				if (t->tileIndex == tileRenderIndex)
+					visibleTiles.push_back(t.get());
+			}
 		}
 	}
 	else
@@ -1907,11 +1926,11 @@ void CGLAB::DeferredDraw(const GameTimer& gt)
 		m_terrainSystem->GetVisibleTiles(m_visibleTerrainTiles);
 		for (auto& t : m_visibleTerrainTiles)
 		{
-			m_visibleTerrItems.push_back(mAllRitems[t->renderItemIndex].get());
+			visibleTiles.push_back(t);
 		}
 	}
 	
-	if (!m_visibleTerrItems.empty())
+	if (!visibleTiles.empty())
 	{
 		// Переключаемся на terrain PSO
 		if (wireframe)
@@ -1921,7 +1940,7 @@ void CGLAB::DeferredDraw(const GameTimer& gt)
 		mCommandList->SetGraphicsRootSignature(mTerrainRootSignature.Get());
 		mCommandList->SetGraphicsRootConstantBufferView(4, passCB->GetGPUVirtualAddress());
 		std::cout << "Rendering " << m_visibleTerrItems.size() << " terrain tiles" << std::endl;
-		DrawTilesRenderItems(mCommandList.Get(), m_visibleTerrItems);
+		DrawTilesRenderItems(mCommandList.Get(), m_visibleTerrItems, visibleTiles,m_terrainSystem->m_hmapIndex);
 	}
 
 
@@ -2091,24 +2110,25 @@ void CGLAB::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vecto
     }
 }
 
-void CGLAB::DrawTilesRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
+void CGLAB::DrawTilesRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems, std::vector<TerrainTile*> tiles,int HeighIndex)
 {
 	UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
 	UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));
+	UINT terrCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(TerrainTileConstants));
 
 	auto objectCB = mCurrFrameResource->ObjectCB->Resource();
 	auto matCB = mCurrFrameResource->MaterialCB->Resource();
 
-	// For each render item...
-	for (size_t i = 0; i < ritems.size(); ++i)
+
+	for (auto& t : tiles)
 	{
-		auto ri = ritems[i];
+		auto ri = mAllRitems[t->renderItemIndex].get();
 		cmdList->IASetVertexBuffers(0, 1, &ri->Geo->VertexBufferView());
 		cmdList->IASetIndexBuffer(&ri->Geo->IndexBufferView());
 		cmdList->IASetPrimitiveTopology(ri->PrimitiveType);
 
 		CD3DX12_GPU_DESCRIPTOR_HANDLE heightHandle(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
-		heightHandle.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
+		heightHandle.Offset(HeighIndex, mCbvSrvDescriptorSize);
 		cmdList->SetGraphicsRootDescriptorTable(0, heightHandle);
 		CD3DX12_GPU_DESCRIPTOR_HANDLE diffuseHandle(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 		diffuseHandle.Offset(ri->Mat->DiffuseSrvHeapIndex, mCbvSrvDescriptorSize);
@@ -2123,9 +2143,10 @@ void CGLAB::DrawTilesRenderItems(ID3D12GraphicsCommandList* cmdList, const std::
 		cmdList->SetGraphicsRootConstantBufferView(3, objCBAddress);
 		cmdList->SetGraphicsRootConstantBufferView(5, matCBAddress);
 		auto terrCB = mCurrFrameResource->TerrainCB->Resource();
-		mCommandList->SetGraphicsRootConstantBufferView(6, terrCB->GetGPUVirtualAddress());
+		mCommandList->SetGraphicsRootConstantBufferView(6, terrCB->GetGPUVirtualAddress() + t->tileIndex * terrCBByteSize);
 		cmdList->DrawIndexedInstanced(ri->IndexCount, 1, ri->StartIndexLocation, ri->BaseVertexLocation, 0);
 	}
+	
 }
 
 std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> CGLAB::GetStaticSamplers()

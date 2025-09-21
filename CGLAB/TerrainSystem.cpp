@@ -5,6 +5,7 @@
 // 1. Реализация AABB::IntersectsFrustum
 bool AABB::IntersectsFrustum(const XMFLOAT4 frustumPlanes[6]) const
 {
+
     for (int i = 0; i < 6; i++)
     {
         XMVECTOR plane = XMLoadFloat4(&frustumPlanes[i]);
@@ -56,13 +57,13 @@ void CGLAB::ExtractFrustumPlanes(const XMMATRIX& viewProj)
     m_frustumPlanes[3].z = vp._34 + vp._32;
     m_frustumPlanes[3].w = vp._44 + vp._42;
 
-    // Near plane
-    m_frustumPlanes[4].x = vp._13;
-    m_frustumPlanes[4].y = vp._23;
-    m_frustumPlanes[4].z = vp._33;
-    m_frustumPlanes[4].w = vp._43;
+    // ИСПРАВЛЕНИЕ: Near plane
+    m_frustumPlanes[4].x = vp._14 + vp._13;
+    m_frustumPlanes[4].y = vp._24 + vp._23;
+    m_frustumPlanes[4].z = vp._34 + vp._33;
+    m_frustumPlanes[4].w = vp._44 + vp._43;
 
-    // Far plane
+    // ИСПРАВЛЕНИЕ: Far plane
     m_frustumPlanes[5].x = vp._14 - vp._13;
     m_frustumPlanes[5].y = vp._24 - vp._23;
     m_frustumPlanes[5].z = vp._34 - vp._33;
@@ -94,13 +95,14 @@ bool QuadTreeNode::ShouldSplit(const XMFLOAT3& cameraPos, float maxScreenError,i
     //// Размер тайла в мировых единицах
     float tileSize = boundingBox.maxPoint.x - boundingBox.minPoint.x;
 
+
     //// Эвристика: разделяем если тайл занимает больше определенного количества пикселей на экране
     //// Это упрощенная версия screen-space error calculation
-    float screenSpaceSize = (tileSize / (distance + 1.0f)) * 250.0f; // упрощенная формула
+    float screenSpaceSize = (tileSize / (distance + 1.0f)) * 100.0f; // упрощенная формула
 
 
 
-    return screenSpaceSize > maxScreenError && depth < 4; // максимум 6 уровней
+    return screenSpaceSize > maxScreenError && depth < 6; // максимум 6 уровней
 }
 
 // 4. Обновление видимости в квадродереве
@@ -135,13 +137,13 @@ void QuadTreeNode::UpdateVisibility(const XMFLOAT4 frustumPlanes[6], const XMFLO
 }
 
 // 5. Инициализация terrain системы
-void TerrainSystem::Initialize(ID3D12Device* device, const std::wstring& heightmapPath,
+void TerrainSystem::Initialize(ID3D12Device* device, int HeightMapIndex,
     float worldSize, int maxLOD)
 {
     m_worldSize = worldSize;
     m_maxLOD = maxLOD;
     m_heightScale = 50.0f; // настраиваемый параметр
-
+    m_hmapIndex = HeightMapIndex;
     // Загрузка heightmap (упрощенная версия - нужно адаптировать под ваш код)
     // ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(device, cmdList, 
     //     heightmapPath.c_str(), m_heightmapTexture, uploadHeap));
@@ -165,7 +167,7 @@ void TerrainSystem::BuildQuadTree(QuadTreeNode* node, int x, int y, int size, in
 
     // Вычисляем AABB для этого узла.
     // Пока что упрощенно, без учета хайтмапы
-    node->boundingBox = CalculateTileAABB(XMFLOAT3(x, 0, y), tileSize, -10.0f, 40.0f);
+    node->boundingBox = CalculateTileAABB(XMFLOAT3(x, 0, y), tileSize, -10.0f, 4000.0f);
    
     auto tile = std::make_unique<TerrainTile>();
     tile->worldPos = XMFLOAT3(x, 0, y);
@@ -176,6 +178,7 @@ void TerrainSystem::BuildQuadTree(QuadTreeNode* node, int x, int y, int size, in
     tile->tileIndex = tileIndex++;
     m_allTiles.push_back(std::move(tile));
     node->tile = m_allTiles.back().get(); // Указываем на созданный тайл
+  //  std::cout << "CREATE TILE " << tileIndex << " LOD: " << depth << "TILESIZE: " << tileSize << "\n" ;
     // Если мы достигли максимальной глубины, создаем тайл.
     if (depth != m_maxLOD)
     {
@@ -183,8 +186,8 @@ void TerrainSystem::BuildQuadTree(QuadTreeNode* node, int x, int y, int size, in
         for (int i = 0; i < 4; i++)
         {
             node->children[i] = std::make_unique<QuadTreeNode>();
-            int childX = x + (i % 2) * halfSize/32;
-            int childY = y + (i / 2) * halfSize/32;
+            int childX = x + (i % 2) * halfSize;
+            int childY = y + (i / 2) * halfSize;
             BuildQuadTree(node->children[i].get(), childX, childY, halfSize, depth + 1);
         }
     }
@@ -218,8 +221,8 @@ void TerrainSystem::GetVisibleTiles(std::vector<TerrainTile*>& outTiles)
 void CGLAB::GenerateTileGeometry(const XMFLOAT3& worldPos, float tileSize, int lodLevel,
     std::vector<Vertex>& vertices, std::vector<std::uint32_t>& indices)
 {
-    int baseResolution = 4;
-    float Factor = 2; 
+    int baseResolution = 16;
+    float Factor = 1; 
     int resolution = static_cast<int>(baseResolution * std::pow(Factor, lodLevel));
   // std::cout << "LOD " << lodLevel << "RES: " << resolution << "\n" : std::cout;
     vertices.clear();
@@ -283,7 +286,7 @@ void CGLAB::BuildTerrainGeometry()
         std::vector<Vertex> tileVertices;
         std::vector<std::uint32_t> tileIndices;
 
-        GenerateTileGeometry(tile->worldPos, tile->tileSize/32, tile->lodLevel, tileVertices, tileIndices);
+        GenerateTileGeometry(tile->worldPos, tile->tileSize, tile->lodLevel, tileVertices, tileIndices);
 
         // Смещаем индексы на количество уже добавленных вершин
         UINT baseVertex = allVertices.size();

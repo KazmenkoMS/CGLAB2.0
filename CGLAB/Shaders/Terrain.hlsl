@@ -87,23 +87,23 @@ VertexOut VS(VertexIn vin)
     
     // 1. Вычисляем позицию вершины в мировом пространстве
     float3 posWW = (vin.PosL * gTileSize) + gTilePosition;
-
-    // 2. Рассчитываем текстурные координаты на общем атласе
-    // Нормализуем мировые координаты к диапазону [0,1] для текстуры.
-    float2 normalizedPos = (posWW.xz + mapSize * 0.5f) / mapSize;
-    // Масштабируем текстурные координаты для повторения текстуры
-    vout.TexC = normalizedPos / mapSize * 32;
+    
+    float4 texC = mul(float4(vin.TexC, 0.0f, 1.0f), gTexTransform);
+    vout.TexC = mul(texC, gMatTransform).xy;
+    float coeff = gTileSize / mapSize;
+    vout.TexC *= coeff;
+    vout.TexC += gTilePosition.xz / mapSize;
     
     // Семплируем высоту из heightmap
     float height = gHeightMap.SampleLevel(gSamLinearClamp, vout.TexC, 0).r;
     
     // Применяем высоту к Y координате
     float3 posL = vin.PosL;
-    posL.y = height * height * heightScale;
+    posL.y = height * heightScale * heightScale;
     
     // Трансформируем в мировые координаты
     float4 posW = mul(float4(posL, 1.0f), gWorld);
-    vout.PosW = posW.xyz;
+    vout.PosW = posWW.xyz;
     
     
     // Вычисляем нормаль из heightmap для более точного результата
@@ -115,15 +115,16 @@ VertexOut VS(VertexIn vin)
     float heightDown = gHeightMap.SampleLevel(gSamLinearClamp, vout.TexC + float2(0, -texelSize.y), 0).r * heightScale;
     float heightUp = gHeightMap.SampleLevel(gSamLinearClamp, vout.TexC + float2(0, texelSize.y), 0).r * heightScale;
     
-    // Вычисляем касательные векторы
-    float3 tangent = normalize(float3(2.0f, heightRight - heightLeft, 0.0f));
-    float3 bitangent = normalize(float3(0.0f, heightUp - heightDown, 2.0f));
-    
-    // Вычисляем нормаль как cross product касательных
-    float3 normal = normalize(cross(tangent, bitangent));
+    // Вычисляем реальный размер шага в мировых координатах
+    float worldTexelSize = gTileSize / mapSize; // размер одного пикселя heightmap в мировых единицах
+
+    // Правильные касательные векторы
+    float3 tangent = normalize(float3(worldTexelSize, heightRight - heightLeft, 0.0f));
+    float3 bitangent = normalize(float3(0.0f, heightUp - heightDown, worldTexelSize)); // Вычисляем нормаль как cross product касательных
+    float3 normal = vin.NormalL;
     
     // Трансформируем нормаль в мировое пространство
-    vout.NormalW = mul(normal, (float3x3) gInvWorld);
+    vout.NormalW = mul(normal, (float3x3) gWorld);
     
     // Трансформируем тангент
     vout.TangentW = mul(tangent, (float3x3) gWorld);

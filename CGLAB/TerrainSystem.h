@@ -13,7 +13,7 @@ struct AABB
 {
 	XMFLOAT3 minPoint;
 	XMFLOAT3 maxPoint;
-
+	BoundingBox aabb;
 	bool IntersectsFrustum(const XMFLOAT4 frustumPlanes[6]) const;
 };
 struct TerrainTile
@@ -46,12 +46,13 @@ class TerrainSystem
 public:
 	TerrainSystem() {};
 
-	void Initialize(ID3D12Device* device, const std::wstring& heightmapPath,
+	void Initialize(ID3D12Device* device, int HeightMapIndex,
 		float worldSize, int maxLOD);
 	void Update(const XMFLOAT3& cameraPos, const XMFLOAT4 frustumPlanes[6]);
 	std::vector<std::shared_ptr<TerrainTile>>& GetAllTiles();
 	void GetVisibleTiles(std::vector<TerrainTile*>& outTiles);
 	float m_worldSize;
+	int m_hmapIndex;
 
 private:
 	std::unique_ptr<QuadTreeNode> m_rootNode;
