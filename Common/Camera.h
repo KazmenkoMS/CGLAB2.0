@@ -66,7 +66,7 @@ public:
 	void Walk(float d);
 
 	void AddSpeed(float alpha);
-	float GetSpeed();
+	float& GetSpeed();
 	void SetSpeed(float _speed);
 	void IncreaseSpeed(float delta);
 	// Rotate the camera.
@@ -98,8 +98,8 @@ private:
 	float mNearWindowHeight = 0.0f;
 	float mFarWindowHeight = 0.0f;
 
-	float CurSpeed = 15.0f;
-	float BaseSpeed = 15.0f;
+	float CurSpeed = 3.0f;
+	float BaseSpeed = 3.0f;
 	float MaxSpeed = 20.0f;
 	bool mViewDirty = true;
 

@@ -167,7 +167,7 @@ float4 PS(VSOut pin) : SV_TARGET
     switch (light.type)
     {
         case 0:
-            lighting = light.Strength * light.Color * albedo;
+            lighting = light.Strength * light.Color * albedo.rgb;
             break;
         case 1:
             lighting = ComputePointLight(light, mat, posW, normalW, toEyeW);

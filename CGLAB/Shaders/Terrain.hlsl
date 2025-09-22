@@ -85,9 +85,7 @@ VertexOut VS(VertexIn vin)
 {
     VertexOut vout = (VertexOut) 0.0f;
     
-    // 1. Вычисляем позицию вершины в мировом пространстве
-    float3 posWW = (vin.PosL * gTileSize) + gTilePosition;
-    
+    // Вычисляем текстурные координаты
     float4 texC = mul(float4(vin.TexC, 0.0f, 1.0f), gTexTransform);
     vout.TexC = mul(texC, gMatTransform).xy;
     float coeff = gTileSize / mapSize;
@@ -103,40 +101,37 @@ VertexOut VS(VertexIn vin)
     
     // Трансформируем в мировые координаты
     float4 posW = mul(float4(posL, 1.0f), gWorld);
-    vout.PosW = posWW.xyz;
+    vout.PosW = posW.xyz;
     
+    // ИСПРАВЛЕННОЕ вычисление нормали
+    float2 texelSize = float2(1.0f / mapSize, 1.0f / mapSize);
     
-    // Вычисляем нормаль из heightmap для более точного результата
-    float2 texelSize = float2(1.0f / mapSize, 1.0f / mapSize); // размер одного текселя heightmap
+    // Семплируем высоты соседних точек
+    float hL = gHeightMap.SampleLevel(gSamLinearClamp, vout.TexC + float2(-texelSize.x, 0.0f), 0).r;
+    float hR = gHeightMap.SampleLevel(gSamLinearClamp, vout.TexC + float2(texelSize.x, 0.0f), 0).r;
+    float hD = gHeightMap.SampleLevel(gSamLinearClamp, vout.TexC + float2(0.0f, -texelSize.y), 0).r;
+    float hU = gHeightMap.SampleLevel(gSamLinearClamp, vout.TexC + float2(0.0f, texelSize.y), 0).r;
     
-    // Семплируем соседние высоты
-    float heightLeft = gHeightMap.SampleLevel(gSamLinearClamp, vout.TexC + float2(-texelSize.x, 0), 0).r * heightScale;
-    float heightRight = gHeightMap.SampleLevel(gSamLinearClamp, vout.TexC + float2(texelSize.x, 0), 0).r * heightScale;
-    float heightDown = gHeightMap.SampleLevel(gSamLinearClamp, vout.TexC + float2(0, -texelSize.y), 0).r * heightScale;
-    float heightUp = gHeightMap.SampleLevel(gSamLinearClamp, vout.TexC + float2(0, texelSize.y), 0).r * heightScale;
+    // Вычисляем градиенты
+    float dX = (hR - hL) * heightScale * heightScale; // градиент по X
+    float dZ = (hU - hD) * heightScale * heightScale; // градиент по Z
     
-    // Вычисляем реальный размер шага в мировых координатах
-    float worldTexelSize = gTileSize / mapSize; // размер одного пикселя heightmap в мировых единицах
-
-    // Правильные касательные векторы
-    float3 tangent = normalize(float3(worldTexelSize, heightRight - heightLeft, 0.0f));
-    float3 bitangent = normalize(float3(0.0f, heightUp - heightDown, worldTexelSize)); // Вычисляем нормаль как cross product касательных
-    float3 normal = vin.NormalL;
+    // Создаем нормаль напрямую из градиентов
+    // Формула: normal = normalize((-dX, 1, -dZ))
+    float3 normal = normalize(float3(-dX, 1.0f, -dZ));
     
-    // Трансформируем нормаль в мировое пространство
-    vout.NormalW = mul(normal, (float3x3) gWorld);
+    // Создаем тангент
+    float3 tangent = normalize(float3(1.0f, dX, 0.0f));
     
-    // Трансформируем тангент
-    vout.TangentW = mul(tangent, (float3x3) gWorld);
+    // Трансформируем в мировое пространство
+    vout.NormalW = normalize(mul(normal, (float3x3) gWorld));
+    vout.TangentW = normalize(mul(tangent, (float3x3) gWorld));
     
     // Трансформируем в clip space
     vout.PosH = mul(posW, gViewProj);
     
-    
-    
     return vout;
 }
-
 float3 NormalSampleToWorldSpace(float3 normalMapSample, float3 unitNormalW, float3 tangentW)
 {
     // Распаковываем нормаль из [0,1] в [-1,1]
@@ -176,6 +171,7 @@ PixelOut PS(VertexOut pin) : SV_Target
     float3 bumpedNormalW = NormalSampleToWorldSpace(normalMapSample, pin.NormalW, pin.TangentW);
     
     // Выводим в G-Buffer
+   // pout.Albedo = float4(bumpedNormalW, gRoughness); //diffuseAlbedo;
     pout.Albedo = diffuseAlbedo;
     pout.Normal = float4(bumpedNormalW, gRoughness);
     pout.Position = float4(pin.PosW, 1.0f);

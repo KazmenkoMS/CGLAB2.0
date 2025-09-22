@@ -203,7 +203,7 @@ void Camera::AddSpeed(float alpha) {
 	BaseSpeed+=alpha;
 }
 
-float Camera::GetSpeed() {
+float& Camera::GetSpeed() {
 	return this->CurSpeed;
 }
 

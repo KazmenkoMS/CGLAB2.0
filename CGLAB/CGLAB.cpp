@@ -108,8 +108,8 @@ bool CGLAB::Initialize()
 	BuildShadowMapViews();
 	BuildDescriptorHeaps();
 	m_terrainSystem = std::make_unique<TerrainSystem>();
-	m_terrainSystem->Initialize(md3dDevice.Get(), TexOffsets["textures/hMap"],
-		8192, 6);
+	m_terrainSystem->Initialize(md3dDevice.Get(), TexOffsets["textures/terrain_height"],
+		1024, 6);
     BuildShapeGeometry();
 	SetLightShapes();
     BuildShadersAndInputLayout();
@@ -196,7 +196,19 @@ void CGLAB::RenderIMGUI()
 			int lId = 0;
 			for (auto& l : mLights)
 			{
-				if (l.type == 1)
+				if (l.type == 0)
+				{
+					std::string s = "\nAmbient Light " + std::to_string(lId);
+					ImGui::PushID(++imguiID);
+					ImGui::Text(s.c_str());
+					float* a[] = { &l.Position.x,&l.Position.y,&l.Position.z };
+					ImGui::ColorEdit3("Color", (float*)&l.Color);
+					ImGui::DragFloat("Strength", &l.Strength, 0.1f, 0, 100);
+
+					ImGui::PopID();
+					ImGui::Separator();
+				}
+				else if (l.type == 1)
 				{
 					std::string s = "\nPoint Light " + std::to_string(lId);
 					ImGui::PushID(++imguiID);
@@ -277,6 +289,13 @@ void CGLAB::RenderIMGUI()
 				ImGui::SliderInt("Tile Index", &tileRenderIndex,0,m_terrainSystem->GetAllTiles().size());
 
 			}
+			ImGui::EndTabItem();
+		}
+		if (ImGui::BeginTabItem("Camera"))
+		{
+			ImGui::SliderFloat("Camera Speed", &cam.GetSpeed(), 1.0f, 20.0f);
+
+			
 			ImGui::EndTabItem();
 		}
 		//mLights[1].Strength = mLights[0].Strength / 1.5; // approximately calculated, looks good tbh
@@ -942,6 +961,16 @@ void CGLAB::CreateSpotLight(XMFLOAT3 pos, XMFLOAT3 rot, XMFLOAT3 color, float fa
 
 void CGLAB::BuildLights()
 {
+	// ambient
+	Light ambient;
+	ambient.LightCBIndex = mLights.size();
+	ambient.Position = { 3.0f, 0.0f, 3.0f };
+	ambient.Color = { 1,1,1 }; // need only x
+	ambient.Strength = 1; 
+	ambient.type = 0;
+	XMStoreFloat4x4(&ambient.gWorld, XMMatrixTranspose(XMMatrixTranslation(0, 0, 0) * XMMatrixScaling(1000, 1000, 1000)));
+	mLights.push_back(ambient);
+
 	// directional
 	Light dir;
 	dir.LightCBIndex = mLights.size();
@@ -955,16 +984,6 @@ void CGLAB::BuildLights()
 	auto& world = XMMatrixScaling(1000,1000,1000);
 	XMStoreFloat4x4(&dir.gWorld, XMMatrixTranspose(world));
 	mLights.push_back(dir);
-
-	// ambient
-	Light ambient;
-	ambient.LightCBIndex = mLights.size();
-	ambient.Position = { 3.0f, 0.0f, 3.0f };
-	ambient.Color = { 1,1,1 }; // need only x
-	ambient.Strength = 1; 
-	ambient.type = 0;
-	XMStoreFloat4x4(&ambient.gWorld, XMMatrixTranspose(XMMatrixTranslation(0, 0, 0) * XMMatrixScaling(1000, 1000, 1000)));
-	mLights.push_back(ambient);
 
 	// other
 	CreatePointLight({ -3,3,0 }, { 4,0,0 }, 1, 5,1);
@@ -1525,19 +1544,19 @@ void CGLAB::BuildPSOs()
 	lightPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_FRONT;
 
 	D3D12_RENDER_TARGET_BLEND_DESC rtBlendDesc = {};
-	rtBlendDesc.BlendEnable = TRUE;                         // включаем смешивание
+	rtBlendDesc.BlendEnable = TRUE;
 	rtBlendDesc.LogicOpEnable = FALSE;
-	rtBlendDesc.SrcBlend = D3D12_BLEND_ONE;              // src * 1
-	rtBlendDesc.DestBlend = D3D12_BLEND_ONE;              // dest * 1
-	rtBlendDesc.BlendOp = D3D12_BLEND_OP_ADD;           // сложение
-	rtBlendDesc.SrcBlendAlpha = D3D12_BLEND_ONE;
-	rtBlendDesc.DestBlendAlpha = D3D12_BLEND_ZERO;             // альфа сохраняем из src
+	rtBlendDesc.SrcBlend = D3D12_BLEND_ONE;          // Use the source color as-is
+	rtBlendDesc.DestBlend = D3D12_BLEND_ONE;          // Add it to the destination color
+	rtBlendDesc.BlendOp = D3D12_BLEND_OP_ADD;
+	rtBlendDesc.SrcBlendAlpha = D3D12_BLEND_ONE;      // Same for alpha
+	rtBlendDesc.DestBlendAlpha = D3D12_BLEND_ONE;
 	rtBlendDesc.BlendOpAlpha = D3D12_BLEND_OP_ADD;
-	rtBlendDesc.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL; // RGB + A
+	rtBlendDesc.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
 
 	D3D12_BLEND_DESC blendDesc = {};
 	blendDesc.AlphaToCoverageEnable = FALSE;
-	blendDesc.IndependentBlendEnable = FALSE;
+	blendDesc.IndependentBlendEnable = FALSE; // Only one render target, so set to FALSE
 	blendDesc.RenderTarget[0] = rtBlendDesc;
 	lightPsoDesc.BlendState = blendDesc;
 
@@ -1625,6 +1644,7 @@ void CGLAB::BuildPSOs()
 	};
 	terrainPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
 	terrainPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_SOLID;
+
 	terrainPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
 	terrainPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
 	terrainPsoDesc.SampleMask = UINT_MAX;
@@ -1679,8 +1699,8 @@ void CGLAB::BuildMaterials()
 	CreateMaterial("prikol1",0, TexOffsets["textures/prikol2"], TexOffsets["textures/prikol2"], XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f), XMFLOAT3(0.05f, 0.05f, 0.05f), 0.3f);
 
 	CreateMaterial("terrainMat", (int)mMaterials.size(),
-		TexOffsets["textures/hMapDiff"],
-		TexOffsets["textures/hMapNM"],
+		TexOffsets["textures/terrain_diffuse"],
+		TexOffsets["textures/terrain_normal"],
 		XMFLOAT4(0.8f, 0.8f, 0.8f, 1.0f),
 		XMFLOAT3(0.02f, 0.02f, 0.02f),
 		0.8f);
@@ -1725,7 +1745,7 @@ void CGLAB::RenderCustomMesh(std::string unique_name, std::string meshname, std:
 
 void CGLAB::BuildRenderItems()
 {
-	/*auto boxRitem = std::make_unique<RenderItem>();
+	auto boxRitem = std::make_unique<RenderItem>();
 	boxRitem->Name = "box";
 	XMStoreFloat4x4(&boxRitem->World, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 5.0f, -10.0f));
 	XMStoreFloat4x4(&boxRitem->TexTransform, XMMatrixScaling(1,1,1));
@@ -1733,10 +1753,10 @@ void CGLAB::BuildRenderItems()
 	boxRitem->Mat = mMaterials["NiggaMat"].get();
 	boxRitem->Geo = mGeometries["shapeGeo"].get();
 	boxRitem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
-	boxRitem->IndexCount = boxRitem->Geo->DrawArgs["box"].IndexCount;
-	boxRitem->StartIndexLocation = boxRitem->Geo->DrawArgs["box"].StartIndexLocation;
-	boxRitem->BaseVertexLocation = boxRitem->Geo->DrawArgs["box"].BaseVertexLocation;
-	mAllRitems.push_back(std::move(boxRitem));*/
+	boxRitem->IndexCount = boxRitem->Geo->DrawArgs["sphere"].IndexCount;
+	boxRitem->StartIndexLocation = boxRitem->Geo->DrawArgs["sphere"].StartIndexLocation;
+	boxRitem->BaseVertexLocation = boxRitem->Geo->DrawArgs["sphere"].BaseVertexLocation;
+	mAllRitems.push_back(std::move(boxRitem));
 
 	//RenderCustomMesh("building", "sponza", "", XMFLOAT3(0.07, 0.07, 0.07), XMFLOAT3(0, 3.14 / 2, 0), XMFLOAT3(0, 0, 0));
 	RenderCustomMesh("nigga", "negr", "NiggaMat", XMFLOAT3(3, 3, 3), XMFLOAT3(0, 3.14, 0), XMFLOAT3(0, 3, 0));
@@ -1885,8 +1905,9 @@ void CGLAB::DeferredDraw(const GameTimer& gt)
 	XMFLOAT4 c(mLights[0].Color.x, mLights[0].Color.y, mLights[0].Color.z, 1);
 	XMVECTORF32 a;
 	a.v = XMLoadFloat4(&c);
-	for (int i = 0; i < 3; ++i)
-		mCommandList->ClearRenderTargetView(rtvHs[i], Colors::LightSteelBlue, 0, nullptr);
+	mCommandList->ClearRenderTargetView(rtvHs[0], Colors::LightSteelBlue, 0, nullptr);
+	mCommandList->ClearRenderTargetView(rtvHs[1], Colors::Black, 0, nullptr);
+	mCommandList->ClearRenderTargetView(rtvHs[2], Colors::Black, 0, nullptr);
 	mCommandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 	mCommandList->OMSetRenderTargets(3, rtvHs, true, &DepthStencilView());
 
@@ -1939,7 +1960,7 @@ void CGLAB::DeferredDraw(const GameTimer& gt)
 			mCommandList->SetPipelineState(mPSOs["terrain"].Get());
 		mCommandList->SetGraphicsRootSignature(mTerrainRootSignature.Get());
 		mCommandList->SetGraphicsRootConstantBufferView(4, passCB->GetGPUVirtualAddress());
-		std::cout << "Rendering " << m_visibleTerrItems.size() << " terrain tiles" << std::endl;
+	    std::cout << "Rendering " << visibleTiles.size() << " terrain tiles" << std::endl;
 		DrawTilesRenderItems(mCommandList.Get(), m_visibleTerrItems, visibleTiles,m_terrainSystem->m_hmapIndex);
 	}
 
