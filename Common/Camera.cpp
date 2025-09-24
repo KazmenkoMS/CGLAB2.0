@@ -8,7 +8,7 @@ using namespace DirectX;
 
 Camera::Camera()
 {
-	SetLens(0.25f*MathHelper::Pi, 1.0f, 1.0f, 10000.0f);
+	SetLens(0.25f*MathHelper::Pi, 1.0f, 1.0f, 20000.0f);
 	DirectX::XMStoreFloat4(&orientation,DirectX::XMQuaternionIdentity());
 }
 

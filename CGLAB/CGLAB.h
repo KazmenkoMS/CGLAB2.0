@@ -41,6 +41,7 @@ private:
 	virtual void MoveBackFwd(float step)override;
 	virtual void MoveLeftRight(float step)override;
 	virtual void MoveUpDown(float step)override;
+	void ImguiInit();
 	void OnKeyPressed(const GameTimer& gt, WPARAM key) override;
 	void OnKeyReleased(const GameTimer& gt, WPARAM key) override;
 	std::wstring GetCamSpeed() override;

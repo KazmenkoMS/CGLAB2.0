@@ -110,8 +110,8 @@ bool CGLAB::Initialize()
 	BuildShadowMapViews();
 	BuildDescriptorHeaps();
 	m_terrainSystem = std::make_unique<TerrainSystem>();
-	m_terrainSystem->Initialize(md3dDevice.Get(), TexOffsets["textures/hMap"],
-		8192, 6);
+	m_terrainSystem->Initialize(md3dDevice.Get(), TexOffsets["textures/terrain_height"],
+		1024, 6);
     BuildShapeGeometry();
 	SetLightShapes();
     BuildShadersAndInputLayout();
@@ -119,7 +119,32 @@ bool CGLAB::Initialize()
     BuildPSOs();
     BuildRenderItems();
     BuildFrameResources();
+	ImguiInit();
+	
+    // Execute the initialization commands.
+    ThrowIfFailed(mCommandList->Close());
+    ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
+    mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
 
+    // Wait until initialization is complete.
+    FlushCommandQueue();
+    return true;
+}
+ 
+void CGLAB::OnResize()
+{
+    D3DApp::OnResize();
+	CreateGBuffer();
+	BuildDescriptorHeaps();
+    // The window resized, so update the aspect ratio and recompute the projection matrix.
+    XMMATRIX P = XMMatrixPerspectiveFovLH(0.4*MathHelper::Pi, AspectRatio(), 1.0f, 20000.0f);
+    XMStoreFloat4x4(&mProj, P);
+
+
+}
+
+void CGLAB::ImguiInit()
+{
 	D3D12_DESCRIPTOR_HEAP_DESC imGuiHeapDesc = {};
 	imGuiHeapDesc.NumDescriptors = 1;
 	imGuiHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
@@ -147,27 +172,8 @@ bool CGLAB::Initialize()
 	init_info.LegacySingleSrvGpuDescriptor = m_ImGuiSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
 	ImGui_ImplWin32_Init(mhMainWnd);
 	ImGui_ImplDX12_Init(&init_info);
-    // Execute the initialization commands.
-    ThrowIfFailed(mCommandList->Close());
-    ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
-    mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
-
-    // Wait until initialization is complete.
-    FlushCommandQueue();
-    return true;
 }
- 
-void CGLAB::OnResize()
-{
-    D3DApp::OnResize();
-	CreateGBuffer();
-	BuildDescriptorHeaps();
-    // The window resized, so update the aspect ratio and recompute the projection matrix.
-    XMMATRIX P = XMMatrixPerspectiveFovLH(0.4*MathHelper::Pi, AspectRatio(), 1.0f, 10000.0f);
-    XMStoreFloat4x4(&mProj, P);
 
-
-}
 void CGLAB::RenderIMGUI()
 {
 	ImGui_ImplDX12_NewFrame();
@@ -302,8 +308,6 @@ void CGLAB::RenderIMGUI()
 			
 			ImGui::EndTabItem();
 		}
-		//mLights[1].Strength = mLights[0].Strength / 1.5; // approximately calculated, looks good tbh
-		//mLights[1].Color = mLights[0].Color;
 		ImGui::EndTabBar();
 	}
 	ImGui::End();
@@ -625,7 +629,7 @@ void CGLAB::UpdateMainPassCB(const GameTimer& gt)
 	mMainPassCB.RenderTargetSize = XMFLOAT2((float)mClientWidth, (float)mClientHeight);
 	mMainPassCB.InvRenderTargetSize = XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
 	mMainPassCB.NearZ = 1.0f;
-	mMainPassCB.FarZ = 10000.0f;
+	mMainPassCB.FarZ = 20000.0f;
 	mMainPassCB.TotalTime = gt.TotalTime();
 	mMainPassCB.DeltaTime = gt.DeltaTime();
 	auto currPassCB = mCurrFrameResource->PassCB.get();
@@ -1705,8 +1709,8 @@ void CGLAB::BuildMaterials()
 	CreateMaterial("prikol1",0, TexOffsets["textures/prikol2"], TexOffsets["textures/prikol2"], XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f), XMFLOAT3(0.05f, 0.05f, 0.05f), 0.3f);
 
 	CreateMaterial("terrainMat", (int)mMaterials.size(),
-		TexOffsets["textures/hMapDiff"],
-		TexOffsets["textures/hMapNM"],
+		TexOffsets["textures/terrain_diffuse"],
+		TexOffsets["textures/terrain_normal"],
 		XMFLOAT4(0.8f, 0.8f, 0.8f, 1.0f),
 		XMFLOAT3(0.02f, 0.02f, 0.02f),
 		0.8f);

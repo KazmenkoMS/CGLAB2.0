@@ -78,7 +78,7 @@ void CGLAB::ExtractFrustumPlanes(const XMMATRIX& viewProj)
     }
 }
 
-bool QuadTreeNode::ShouldSplit(const XMFLOAT3& cameraPos, float heightscale,int nodeLodLevel) const
+bool QuadTreeNode::ShouldSplit(const XMFLOAT3& cameraPos, float heightscale,int mapsize) const
 {
     XMFLOAT3 bounds[5]; // corners and center
     bounds[0] = XMFLOAT3(boundingBox.minPoint.x, 0, boundingBox.minPoint.z);
@@ -87,22 +87,27 @@ bool QuadTreeNode::ShouldSplit(const XMFLOAT3& cameraPos, float heightscale,int 
     bounds[3] = XMFLOAT3(boundingBox.maxPoint.x, 0, boundingBox.minPoint.z);
     bounds[4] = XMFLOAT3((boundingBox.maxPoint.x - boundingBox.minPoint.x) * 0.5f + boundingBox.minPoint.x, 0, (boundingBox.maxPoint.z - boundingBox.minPoint.z)*0.5f + boundingBox.minPoint.z);
     float tilesize = boundingBox.maxPoint.x - boundingBox.minPoint.x;
-    XMVECTOR camPosVec = XMLoadFloat3(&cameraPos);
-    float lodneeddist = (7000 - depth * 1000) ;
-    for (int i = 0; i < 5; i++)
+    auto camPos = cameraPos;
+    camPos.y = 0;
+    
+    XMFLOAT3 closestPoint; // closest point to camera on bounding box 
+    closestPoint.x = std::clamp(camPos.x, boundingBox.minPoint.x, boundingBox.maxPoint.x);
+    closestPoint.y = std::clamp(camPos.x, boundingBox.minPoint.y, boundingBox.maxPoint.y);
+    BoundingBox bb;
+    XMVECTOR camPosVec = XMLoadFloat3(&camPos);
+    float lodneeddist = ( mapsize/2 - depth * mapsize/16);
+    BoundingSphere sphere;
+    sphere.Center = cameraPos;
+    sphere.Radius = lodneeddist;
+    if (sphere.Intersects(boundingBox.aabb))
     {
-        XMVECTOR checkpoint = XMLoadFloat3(&bounds[i]);
-        float distance = XMVectorGetX(XMVector3Length(XMVectorSubtract(camPosVec, checkpoint)));
-        if (distance < lodneeddist)
-        {
-            return true;
-        }
+        return true;
     }
     return false;
 }
 
 // 4. Обновление видимости в квадродереве
-void QuadTreeNode::UpdateVisibility(const XMFLOAT4 frustumPlanes[6], const XMFLOAT3& cameraPos, std::vector<TerrainTile*>& visibleTiles,float heightscale)
+void QuadTreeNode::UpdateVisibility(const XMFLOAT4 frustumPlanes[6], const XMFLOAT3& cameraPos, std::vector<TerrainTile*>& visibleTiles,float heightscale, int mapsize)
 {
     // Проверка на видимость по AABB
     if (!boundingBox.IntersectsFrustum(frustumPlanes))
@@ -111,7 +116,7 @@ void QuadTreeNode::UpdateVisibility(const XMFLOAT4 frustumPlanes[6], const XMFLO
     }
 
     // Если узел является "листом" (нет дочерних узлов) или не нужно его разбивать
-    if (!children[0] || !ShouldSplit(cameraPos, heightscale,depth))
+    if (!children[0] || !ShouldSplit(cameraPos, heightscale, mapsize))
     {
         // Рендерим текущий узел (тайл)
         if (tile)
@@ -126,7 +131,7 @@ void QuadTreeNode::UpdateVisibility(const XMFLOAT4 frustumPlanes[6], const XMFLO
         {
             if (children[i])
             {
-                children[i]->UpdateVisibility(frustumPlanes, cameraPos, visibleTiles,heightscale);
+                children[i]->UpdateVisibility(frustumPlanes, cameraPos, visibleTiles,heightscale, mapsize);
             }
         }
     }
@@ -193,6 +198,9 @@ AABB TerrainSystem::CalculateTileAABB(const XMFLOAT3& pos, float size, float min
     AABB aabb;
     aabb.minPoint = XMFLOAT3(pos.x, 0, pos.z);
     aabb.maxPoint = XMFLOAT3(pos.x + size, 40000, pos.z + size); // 200 = maxheightscale
+    XMVECTOR pt1 = XMLoadFloat3(&aabb.minPoint);
+    XMVECTOR pt2 = XMLoadFloat3(&aabb.maxPoint);
+    BoundingBox::CreateFromPoints(aabb.aabb, pt1, pt2);
     return aabb;
 }
 
@@ -201,7 +209,7 @@ void TerrainSystem::Update(const XMFLOAT3& cameraPos, const XMFLOAT4 frustumPlan
     m_visibleTiles.clear();
     if (m_rootNode)
     {
-        m_rootNode->UpdateVisibility(frustumPlanes, cameraPos, m_visibleTiles, m_heightScale);
+        m_rootNode->UpdateVisibility(frustumPlanes, cameraPos, m_visibleTiles, m_heightScale, m_worldSize);
     }
 }
 

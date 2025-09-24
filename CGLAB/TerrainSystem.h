@@ -37,8 +37,8 @@ struct QuadTreeNode
 	int depth;                  // Глубина в дереве
 
 	// Методы
-	bool ShouldSplit(const XMFLOAT3& cameraPos, float heightscale,int nodeLODlevel) const;
-	void UpdateVisibility(const XMFLOAT4 frustumPlanes[6], const XMFLOAT3& cameraPos, std::vector<TerrainTile*>& visibleTiles,float heightscale);
+	bool ShouldSplit(const XMFLOAT3& cameraPos, float heightscale, int mapsize) const;
+	void UpdateVisibility(const XMFLOAT4 frustumPlanes[6], const XMFLOAT3& cameraPos, std::vector<TerrainTile*>& visibleTiles,float heightscale, int mapsize);
 };
 
 class TerrainSystem
