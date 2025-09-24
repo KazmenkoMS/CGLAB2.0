@@ -61,10 +61,10 @@ struct TerrainTileConstants
 {
     DirectX::XMFLOAT3 TilePosition;
     float TileSize;
-    DirectX::XMFLOAT3 padding;
     float mapSize;
-    DirectX::XMFLOAT3 padding1;
     float hScale;
+    float showborders = 1;
+    float debugMode = 1;
 };
 // Stores the resources needed for the CPU to build the command lists
 // for a frame.  

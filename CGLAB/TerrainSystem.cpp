@@ -78,35 +78,31 @@ void CGLAB::ExtractFrustumPlanes(const XMMATRIX& viewProj)
     }
 }
 
-// 3. Логика определения LOD
-bool QuadTreeNode::ShouldSplit(const XMFLOAT3& cameraPos, float maxScreenError,int nodeLODlevel) const
+bool QuadTreeNode::ShouldSplit(const XMFLOAT3& cameraPos, float heightscale,int nodeLodLevel) const
 {
-    // Вычисляем расстояние от камеры до центра тайла
-    XMFLOAT3 center;
-    center.x = (boundingBox.minPoint.x + boundingBox.maxPoint.x) * 0.5f;
-    center.y = (boundingBox.minPoint.y + boundingBox.maxPoint.y) * 0.5f;
-    center.z = (boundingBox.minPoint.z + boundingBox.maxPoint.z) * 0.5f;
-
-    XMVECTOR camPos = XMLoadFloat3(&cameraPos);
-    XMVECTOR centerPos = XMLoadFloat3(&center);
-
-    float distance = XMVectorGetX(XMVector3Length(XMVectorSubtract(camPos, centerPos)));
-
-    //// Размер тайла в мировых единицах
-    float tileSize = boundingBox.maxPoint.x - boundingBox.minPoint.x;
-
-
-    //// Эвристика: разделяем если тайл занимает больше определенного количества пикселей на экране
-    //// Это упрощенная версия screen-space error calculation
-    float screenSpaceSize = (tileSize / (distance + 1.0f)) * 100.0f; // упрощенная формула
-
-
-
-    return screenSpaceSize > maxScreenError && depth < 6; // максимум 6 уровней
+    XMFLOAT3 bounds[5]; // corners and center
+    bounds[0] = XMFLOAT3(boundingBox.minPoint.x, 0, boundingBox.minPoint.z);
+    bounds[1] = XMFLOAT3(boundingBox.minPoint.x, 0, boundingBox.maxPoint.z);
+    bounds[2] = XMFLOAT3(boundingBox.maxPoint.x, 0, boundingBox.maxPoint.z);
+    bounds[3] = XMFLOAT3(boundingBox.maxPoint.x, 0, boundingBox.minPoint.z);
+    bounds[4] = XMFLOAT3((boundingBox.maxPoint.x - boundingBox.minPoint.x) * 0.5f + boundingBox.minPoint.x, 0, (boundingBox.maxPoint.z - boundingBox.minPoint.z)*0.5f + boundingBox.minPoint.z);
+    float tilesize = boundingBox.maxPoint.x - boundingBox.minPoint.x;
+    XMVECTOR camPosVec = XMLoadFloat3(&cameraPos);
+    float lodneeddist = (7000 - depth * 1000) ;
+    for (int i = 0; i < 5; i++)
+    {
+        XMVECTOR checkpoint = XMLoadFloat3(&bounds[i]);
+        float distance = XMVectorGetX(XMVector3Length(XMVectorSubtract(camPosVec, checkpoint)));
+        if (distance < lodneeddist)
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 // 4. Обновление видимости в квадродереве
-void QuadTreeNode::UpdateVisibility(const XMFLOAT4 frustumPlanes[6], const XMFLOAT3& cameraPos, std::vector<TerrainTile*>& visibleTiles)
+void QuadTreeNode::UpdateVisibility(const XMFLOAT4 frustumPlanes[6], const XMFLOAT3& cameraPos, std::vector<TerrainTile*>& visibleTiles,float heightscale)
 {
     // Проверка на видимость по AABB
     if (!boundingBox.IntersectsFrustum(frustumPlanes))
@@ -115,7 +111,7 @@ void QuadTreeNode::UpdateVisibility(const XMFLOAT4 frustumPlanes[6], const XMFLO
     }
 
     // Если узел является "листом" (нет дочерних узлов) или не нужно его разбивать
-    if (!children[0] || !ShouldSplit(cameraPos, 100.0f,depth))
+    if (!children[0] || !ShouldSplit(cameraPos, heightscale,depth))
     {
         // Рендерим текущий узел (тайл)
         if (tile)
@@ -130,7 +126,7 @@ void QuadTreeNode::UpdateVisibility(const XMFLOAT4 frustumPlanes[6], const XMFLO
         {
             if (children[i])
             {
-                children[i]->UpdateVisibility(frustumPlanes, cameraPos, visibleTiles);
+                children[i]->UpdateVisibility(frustumPlanes, cameraPos, visibleTiles,heightscale);
             }
         }
     }
@@ -167,7 +163,7 @@ void TerrainSystem::BuildQuadTree(QuadTreeNode* node, int x, int y, int size, in
 
     // Вычисляем AABB для этого узла.
     // Пока что упрощенно, без учета хайтмапы
-    node->boundingBox = CalculateTileAABB(XMFLOAT3(x, 0, y), tileSize, -10.0f, 4000.0f);
+    node->boundingBox = CalculateTileAABB(XMFLOAT3(x, 0, y), tileSize, -10.0f, 400.0f);
    
     auto tile = std::make_unique<TerrainTile>();
     tile->worldPos = XMFLOAT3(x, 0, y);
@@ -195,8 +191,8 @@ void TerrainSystem::BuildQuadTree(QuadTreeNode* node, int x, int y, int size, in
 AABB TerrainSystem::CalculateTileAABB(const XMFLOAT3& pos, float size, float minHeight, float maxHeight)
 {
     AABB aabb;
-    aabb.minPoint = XMFLOAT3(pos.x, minHeight, pos.z);
-    aabb.maxPoint = XMFLOAT3(pos.x + size, maxHeight, pos.z + size);
+    aabb.minPoint = XMFLOAT3(pos.x, 0, pos.z);
+    aabb.maxPoint = XMFLOAT3(pos.x + size, 40000, pos.z + size); // 200 = maxheightscale
     return aabb;
 }
 
@@ -205,7 +201,7 @@ void TerrainSystem::Update(const XMFLOAT3& cameraPos, const XMFLOAT4 frustumPlan
     m_visibleTiles.clear();
     if (m_rootNode)
     {
-        m_rootNode->UpdateVisibility(frustumPlanes, cameraPos, m_visibleTiles);
+        m_rootNode->UpdateVisibility(frustumPlanes, cameraPos, m_visibleTiles, m_heightScale);
     }
 }
 
@@ -222,15 +218,16 @@ void CGLAB::GenerateTileGeometry(const XMFLOAT3& worldPos, float tileSize, int l
     std::vector<Vertex>& vertices, std::vector<std::uint32_t>& indices)
 {
     int baseResolution = 16;
-    float Factor = 1; 
+    float Factor = 1;
     int resolution = static_cast<int>(baseResolution * std::pow(Factor, lodLevel));
-  // std::cout << "LOD " << lodLevel << "RES: " << resolution << "\n" : std::cout;
+
     vertices.clear();
     indices.clear();
 
     float stepSize = tileSize / (resolution - 1);
+    float skirtDepth = 10; // Уменьшил глубину юбки
 
-    // Генерируем вершины
+    // 1. Генерируем основные вершины тайла (как раньше)
     for (int z = 0; z < resolution; z++)
     {
         for (int x = 0; x < resolution; x++)
@@ -244,7 +241,42 @@ void CGLAB::GenerateTileGeometry(const XMFLOAT3& worldPos, float tileSize, int l
         }
     }
 
-    // Генерируем индексы
+    int mainVertexCount = vertices.size();
+
+    // 2. Создаем вершины юбки (дублируем периметр и смещаем вниз)
+    // Левая сторона (x = 0)
+    for (int z = 0; z < resolution; z++)
+    {
+        Vertex vertex = vertices[z * resolution + 0]; // копируем существующую вершину
+        vertex.Pos.y = -skirtDepth; // смещаем вниз
+        vertices.push_back(vertex);
+    }
+
+    // Правая сторона (x = resolution-1)  
+    for (int z = 0; z < resolution; z++)
+    {
+        Vertex vertex = vertices[z * resolution + (resolution - 1)];
+        vertex.Pos.y = -skirtDepth;
+        vertices.push_back(vertex);
+    }
+
+    // Нижняя сторона (z = 0), исключаем углы
+    for (int x = 1; x < resolution - 1; x++)
+    {
+        Vertex vertex = vertices[0 * resolution + x];
+        vertex.Pos.y = -skirtDepth;
+        vertices.push_back(vertex);
+    }
+
+    // Верхняя сторона (z = resolution-1), исключаем углы
+    for (int x = 1; x < resolution - 1; x++)
+    {
+        Vertex vertex = vertices[(resolution - 1) * resolution + x];
+        vertex.Pos.y = -skirtDepth;
+        vertices.push_back(vertex);
+    }
+
+    // 3. Генерируем индексы для основного тайла
     for (int z = 0; z < resolution - 1; z++)
     {
         for (int x = 0; x < resolution - 1; x++)
@@ -254,16 +286,88 @@ void CGLAB::GenerateTileGeometry(const XMFLOAT3& worldPos, float tileSize, int l
             UINT bottomLeft = (z + 1) * resolution + x;
             UINT bottomRight = bottomLeft + 1;
 
-            // Первый треугольник
             indices.push_back(topLeft);
             indices.push_back(bottomLeft);
             indices.push_back(topRight);
 
-            // Второй треугольник
             indices.push_back(topRight);
             indices.push_back(bottomLeft);
             indices.push_back(bottomRight);
         }
+    }
+
+    // 4. Индексы для юбки - простая версия
+    int leftSkirtStart = mainVertexCount;
+    int rightSkirtStart = leftSkirtStart + resolution;
+    int bottomSkirtStart = rightSkirtStart + resolution;
+    int topSkirtStart = bottomSkirtStart + (resolution - 2);
+
+    // Левая юбка
+    for (int z = 0; z < resolution - 1; z++)
+    {
+        UINT edge1 = z * resolution;
+        UINT edge2 = (z + 1) * resolution;
+        UINT skirt1 = leftSkirtStart + z;
+        UINT skirt2 = leftSkirtStart + z + 1;
+
+        indices.push_back(edge1);
+        indices.push_back(skirt1);
+        indices.push_back(edge2);
+
+        indices.push_back(edge2);
+        indices.push_back(skirt1);
+        indices.push_back(skirt2);
+    }
+
+    // Правая юбка  
+    for (int z = 0; z < resolution - 1; z++)
+    {
+        UINT edge1 = z * resolution + (resolution - 1);
+        UINT edge2 = (z + 1) * resolution + (resolution - 1);
+        UINT skirt1 = rightSkirtStart + z;
+        UINT skirt2 = rightSkirtStart + z + 1;
+
+        indices.push_back(edge1);
+        indices.push_back(edge2);
+        indices.push_back(skirt1);
+
+        indices.push_back(edge2);
+        indices.push_back(skirt2);
+        indices.push_back(skirt1);
+    }
+
+    // Нижняя юбка
+    for (int x = 1; x < resolution - 2; x++)
+    {
+        UINT edge1 = x;
+        UINT edge2 = x + 1;
+        UINT skirt1 = bottomSkirtStart + (x - 1);
+        UINT skirt2 = bottomSkirtStart + x;
+
+        indices.push_back(edge1);
+        indices.push_back(edge2);
+        indices.push_back(skirt1);
+
+        indices.push_back(edge2);
+        indices.push_back(skirt2);
+        indices.push_back(skirt1);
+    }
+
+    // Верхняя юбка
+    for (int x = 1; x < resolution - 2; x++)
+    {
+        UINT edge1 = (resolution - 1) * resolution + x;
+        UINT edge2 = (resolution - 1) * resolution + x + 1;
+        UINT skirt1 = topSkirtStart + (x - 1);
+        UINT skirt2 = topSkirtStart + x;
+
+        indices.push_back(edge1);
+        indices.push_back(skirt1);
+        indices.push_back(edge2);
+
+        indices.push_back(edge2);
+        indices.push_back(skirt1);
+        indices.push_back(skirt2);
     }
 }
 
@@ -356,14 +460,7 @@ void CGLAB::UpdateTerrain(const GameTimer& gt)
 
     // Обновляем terrain систему. Это заполняет m_visibleTiles
     m_terrainSystem->Update(cameraPosition, m_frustumPlanes);
+    m_terrainSystem->m_heightScale = heightScale;
 
-    // Получаем список видимых тайлов, которые определило квадродерево.
-  
-    for (auto& t : m_terrainSystem->GetAllTiles())
-    {
-        m_visibleTerrainTiles.push_back(t.get());
-    }
-
-    // Здесь можно передать m_visibleTerrainRenderItems в ваш рендер-лист.
 }
 

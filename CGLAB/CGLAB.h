@@ -162,7 +162,7 @@ private:
 	std::unique_ptr<TerrainSystem> m_terrainSystem;
 	XMFLOAT4 m_frustumPlanes[6];  // Плоскости frustum'a
 	std::vector<TerrainTile*> m_visibleTerrainTiles;
-
+	float heightScale = 0;
 	std::vector<std::unique_ptr<RenderItem>> m_visibleTerrainRenderItems;
 	std::vector<RenderItem*> m_visibleTerrItems;
 	// Методы

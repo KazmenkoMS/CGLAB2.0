@@ -37,8 +37,8 @@ struct QuadTreeNode
 	int depth;                  // Глубина в дереве
 
 	// Методы
-	bool ShouldSplit(const XMFLOAT3& cameraPos, float maxScreenError,int nodeLODlevel) const;
-	void UpdateVisibility(const XMFLOAT4 frustumPlanes[6], const XMFLOAT3& cameraPos, std::vector<TerrainTile*>& visibleTiles);
+	bool ShouldSplit(const XMFLOAT3& cameraPos, float heightscale,int nodeLODlevel) const;
+	void UpdateVisibility(const XMFLOAT4 frustumPlanes[6], const XMFLOAT3& cameraPos, std::vector<TerrainTile*>& visibleTiles,float heightscale);
 };
 
 class TerrainSystem
@@ -53,6 +53,7 @@ public:
 	void GetVisibleTiles(std::vector<TerrainTile*>& outTiles);
 	float m_worldSize;
 	int m_hmapIndex;
+	float m_heightScale;
 
 private:
 	std::unique_ptr<QuadTreeNode> m_rootNode;
@@ -60,7 +61,6 @@ private:
 	std::vector<std::shared_ptr<TerrainTile>>m_allTiles;
 	std::vector<TerrainTile*> m_visibleTiles;
 	int m_maxLOD;
-	float m_heightScale;
 	int tileIndex = 0;
 	void BuildQuadTree(QuadTreeNode* node, int x, int y, int size, int depth);
 	AABB CalculateTileAABB(const XMFLOAT3& pos, float size, float minHeight, float maxHeight);

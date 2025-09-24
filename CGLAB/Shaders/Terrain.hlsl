@@ -36,10 +36,10 @@ cbuffer cbTerrainTile : register(b3) // b1 - регистр для буфера
 {
     float3 gTilePosition;
     float gTileSize;
-    float3 padding;
     float mapSize;
-    float3 padding1;
     float heightScale;
+    float showborders;
+    float debugMode;
 };
 // Texture resources
 Texture2D gHeightMap : register(t0); // Карта высот
@@ -68,6 +68,7 @@ struct VertexOut
     float3 NormalW : NORMAL;
     float3 TangentW : TANGENT;
     float2 TexC : TEXCOORD;
+    float2 TexCl : TEXCOORD2;
 };
 
 struct PixelOut
@@ -91,13 +92,13 @@ VertexOut VS(VertexIn vin)
     float coeff = gTileSize / mapSize;
     vout.TexC *= coeff;
     vout.TexC += gTilePosition.xz / mapSize;
-    
+    vout.TexCl = vin.TexC;
     // Семплируем высоту из heightmap
     float height = gHeightMap.SampleLevel(gSamLinearClamp, vout.TexC, 0).r;
     
     // Применяем высоту к Y координате
     float3 posL = vin.PosL;
-    posL.y = height * heightScale * heightScale;
+    posL.y = posL.y + height * heightScale;
     
     // Трансформируем в мировые координаты
     float4 posW = mul(float4(posL, 1.0f), gWorld);
@@ -113,8 +114,8 @@ VertexOut VS(VertexIn vin)
     float hU = gHeightMap.SampleLevel(gSamLinearClamp, vout.TexC + float2(0.0f, texelSize.y), 0).r;
     
     // Вычисляем градиенты
-    float dX = (hR - hL) * heightScale * heightScale; // градиент по X
-    float dZ = (hU - hD) * heightScale * heightScale; // градиент по Z
+    float dX = (hR - hL) * heightScale ; // градиент по X
+    float dZ = (hU - hD) * heightScale ; // градиент по Z
     
     // Создаем нормаль напрямую из градиентов
     // Формула: normal = normalize((-dX, 1, -dZ))
@@ -160,8 +161,37 @@ PixelOut PS(VertexOut pin) : SV_Target
     // Применяем материальный цвет
     diffuseAlbedo *= gDiffuseAlbedo;
     
+    // debug
+    
+    if (debugMode)
+    {
+        if (gTileSize == mapSize)
+            diffuseAlbedo = float4(0.5f, 0.0f, 0.0f, 1.0f);
+        else if (gTileSize == mapSize / 2)
+            diffuseAlbedo = float4(0.8f, 0.3f, 0.0f, 1.0f);
+        else if (gTileSize == mapSize / 4)
+            diffuseAlbedo = float4(1.0f, 0.7f, 0.0f, 1.0f);
+        else if (gTileSize == mapSize / 8)
+            diffuseAlbedo = float4(0.f, 0.3f, 0.1f, 1.0f);
+        else if (gTileSize == mapSize / 16)
+            diffuseAlbedo = float4(0.1f, 0.5f, 0.1f, 1.0f);
+        else if (gTileSize == mapSize / 32)
+            diffuseAlbedo = float4(0.0f, 1.0f, 0.3f, 1.0f);
+        else if (gTileSize == mapSize / 64)
+            diffuseAlbedo = float4(0.0f, 1.0f, 1.0f, 1.0f);
+    }
+        
+    if (showborders)
+    {
+        float2 uv = pin.TexCl;
+        if (uv.x < 0.005 || uv.x > 0.995 || uv.y < 0.005 || uv.y > 0.995)
+            diffuseAlbedo = float4(0, 0, 0, 0);
+    }
+   
+    
+    
     // Семплируем карту нормалей
-    float3 normalMapSample = gNormalMap.Sample(gSamAnisotropicWrap, pin.TexC).rgb;
+        float3 normalMapSample = gNormalMap.Sample(gSamAnisotropicWrap, pin.TexC).rgb;
     
     // Нормализуем интерполированные нормали и тангенты
     pin.NormalW = normalize(pin.NormalW);
@@ -171,7 +201,8 @@ PixelOut PS(VertexOut pin) : SV_Target
     float3 bumpedNormalW = NormalSampleToWorldSpace(normalMapSample, pin.NormalW, pin.TangentW);
     
     // Выводим в G-Buffer
-   // pout.Albedo = float4(bumpedNormalW, gRoughness); //diffuseAlbedo;
+    
+    
     pout.Albedo = diffuseAlbedo;
     pout.Normal = float4(bumpedNormalW, gRoughness);
     pout.Position = float4(pin.PosW, 1.0f);

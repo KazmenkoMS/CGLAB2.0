@@ -10,10 +10,12 @@ Camera cam;
 static int imguiID = 0;
 int renderlodlevel = 0;
 int tileRenderIndex = 0;
+bool colordebug = 1;
+bool showborders = 1;
 static bool wireframe = false;
-static bool dynamicLOD = false;
+static bool dynamicLOD = true;
 static bool renderOneTile = false;
-float heightScale;
+
 #pragma comment(lib, "d3dcompiler.lib")
 #pragma comment(lib, "D3D12.lib")
 
@@ -108,8 +110,8 @@ bool CGLAB::Initialize()
 	BuildShadowMapViews();
 	BuildDescriptorHeaps();
 	m_terrainSystem = std::make_unique<TerrainSystem>();
-	m_terrainSystem->Initialize(md3dDevice.Get(), TexOffsets["textures/terrain_height"],
-		1024, 6);
+	m_terrainSystem->Initialize(md3dDevice.Get(), TexOffsets["textures/hMap"],
+		8192, 6);
     BuildShapeGeometry();
 	SetLightShapes();
     BuildShadersAndInputLayout();
@@ -279,14 +281,16 @@ void CGLAB::RenderIMGUI()
 			if (m_terrainSystem)
 			{
 				ImGui::Text("Visible Terrain Tiles: %d", (int)m_visibleTerrainTiles.size());
-				ImGui::SliderFloat("Height Scale", &heightScale, 1.0f, 200.0f);
+				ImGui::DragFloat("Height Scale", &heightScale,1.0f, 1.0f, 40000.0f);
 				ImGui::SliderInt("LodLevel", &renderlodlevel, 0, 6);
 				ImGui::Checkbox("Wireframe", &wireframe);
 				ImGui::Checkbox("DynamicLOD", &dynamicLOD);
 				ImGui::Separator();
-				ImGui::Text("One Tile Render mod");
+				ImGui::Text("Debug");
 				ImGui::Checkbox("Render One Tile", &renderOneTile);
 				ImGui::SliderInt("Tile Index", &tileRenderIndex,0,m_terrainSystem->GetAllTiles().size());
+				ImGui::Checkbox("Colors Debug", &colordebug);
+				ImGui::Checkbox("Show borders", &showborders);
 
 			}
 			ImGui::EndTabItem();
@@ -499,6 +503,8 @@ void CGLAB::UpdateTerrainCBs(const GameTimer& gt)
 		tileConstants.TileSize = t->tileSize;
 		tileConstants.mapSize = m_terrainSystem->m_worldSize;
 		tileConstants.hScale = heightScale;
+		tileConstants.debugMode = colordebug;
+		tileConstants.showborders = showborders;
 		currTileCB->CopyData(t->tileIndex, tileConstants);
 		
 		t->NumFramesDirty--;
@@ -1699,8 +1705,8 @@ void CGLAB::BuildMaterials()
 	CreateMaterial("prikol1",0, TexOffsets["textures/prikol2"], TexOffsets["textures/prikol2"], XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f), XMFLOAT3(0.05f, 0.05f, 0.05f), 0.3f);
 
 	CreateMaterial("terrainMat", (int)mMaterials.size(),
-		TexOffsets["textures/terrain_diffuse"],
-		TexOffsets["textures/terrain_normal"],
+		TexOffsets["textures/hMapDiff"],
+		TexOffsets["textures/hMapNM"],
 		XMFLOAT4(0.8f, 0.8f, 0.8f, 1.0f),
 		XMFLOAT3(0.02f, 0.02f, 0.02f),
 		0.8f);
@@ -1922,7 +1928,6 @@ void CGLAB::DeferredDraw(const GameTimer& gt)
 	m_visibleTerrItems.clear();
 	m_visibleTerrainTiles.clear();
 	// costyl
-	std::vector<TerrainTile*>visibleTiles;
 	if (!dynamicLOD)
 	{
 		if (!renderOneTile)
@@ -1930,7 +1935,7 @@ void CGLAB::DeferredDraw(const GameTimer& gt)
 			for (auto& t : m_terrainSystem->GetAllTiles())
 			{
 				if (t->lodLevel == renderlodlevel)
-					visibleTiles.push_back(t.get());
+					m_visibleTerrainTiles.push_back(t.get());
 			}
 		}
 		else
@@ -1938,20 +1943,16 @@ void CGLAB::DeferredDraw(const GameTimer& gt)
 			for (auto& t : m_terrainSystem->GetAllTiles())
 			{
 				if (t->tileIndex == tileRenderIndex)
-					visibleTiles.push_back(t.get());
+					m_visibleTerrainTiles.push_back(t.get());
 			}
 		}
 	}
 	else
 	{
 		m_terrainSystem->GetVisibleTiles(m_visibleTerrainTiles);
-		for (auto& t : m_visibleTerrainTiles)
-		{
-			visibleTiles.push_back(t);
-		}
 	}
 	
-	if (!visibleTiles.empty())
+	if (!m_visibleTerrainTiles.empty())
 	{
 		// Переключаемся на terrain PSO
 		if (wireframe)
@@ -1960,8 +1961,7 @@ void CGLAB::DeferredDraw(const GameTimer& gt)
 			mCommandList->SetPipelineState(mPSOs["terrain"].Get());
 		mCommandList->SetGraphicsRootSignature(mTerrainRootSignature.Get());
 		mCommandList->SetGraphicsRootConstantBufferView(4, passCB->GetGPUVirtualAddress());
-	    std::cout << "Rendering " << visibleTiles.size() << " terrain tiles" << std::endl;
-		DrawTilesRenderItems(mCommandList.Get(), m_visibleTerrItems, visibleTiles,m_terrainSystem->m_hmapIndex);
+		DrawTilesRenderItems(mCommandList.Get(), m_visibleTerrItems, m_visibleTerrainTiles,m_terrainSystem->m_hmapIndex);
 	}
 
 
