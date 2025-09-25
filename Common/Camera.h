@@ -79,7 +79,8 @@ public:
 	void SpeedDown();
 	// After modifying camera position/orientation, call to rebuild the view matrix.
 	void UpdateViewMatrix();
-
+	void UpdateFrustum();
+	DirectX::BoundingFrustum GetFrustum() const;
 private:
 
 	// Camera coordinate system with coordinates relative to world space.
@@ -102,7 +103,7 @@ private:
 	float BaseSpeed = 3.0f;
 	float MaxSpeed = 20.0f;
 	bool mViewDirty = true;
-
+	DirectX::BoundingFrustum mFrustum;
 	// Cache View/Proj matrices.
 	DirectX::XMFLOAT4X4 mView = MathHelper::Identity4x4();
 	DirectX::XMFLOAT4X4 mProj = MathHelper::Identity4x4();

@@ -9,7 +9,6 @@
 #include <iostream>
 #include "RenderItem.h"
 #include "TerrainSystem.h"
-extern Camera cam;
 
 
 using Microsoft::WRL::ComPtr;
@@ -74,7 +73,7 @@ private:
 	void BuildRenderItems();
 	void DrawSceneToShadowMap();
 	void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
-	void DrawTilesRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems, std::vector<TerrainTile*> tiles, int HeightIndex);
+	void DrawTilesRenderItems(ID3D12GraphicsCommandList* cmdList, std::vector<TerrainTile*> tiles, int HeightIndex);
 	void RenderIMGUI();
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetStaticSamplers();
 	void CreateSpotLight(XMFLOAT3 pos, XMFLOAT3 rot, XMFLOAT3 color, float faloff_start, float faloff_end, float strength, float spotpower);
@@ -163,13 +162,11 @@ private:
 	std::unique_ptr<TerrainSystem> m_terrainSystem;
 	XMFLOAT4 m_frustumPlanes[6];  // Плоскости frustum'a
 	std::vector<TerrainTile*> m_visibleTerrainTiles;
-	float heightScale = 0;
-	std::vector<std::unique_ptr<RenderItem>> m_visibleTerrainRenderItems;
-	std::vector<RenderItem*> m_visibleTerrItems;
+	float heightScale = 100;
 	// Методы
-	void ExtractFrustumPlanes(const XMMATRIX& viewProj);
 	void GenerateTileGeometry(const XMFLOAT3& worldPos, float tileSize, int lodLevel, std::vector<Vertex>& vertices, std::vector<std::uint32_t>& indices);
 	void BuildTerrainGeometry();
 	void UpdateTerrain(const GameTimer& gt);
 
+	Camera cam;
 };

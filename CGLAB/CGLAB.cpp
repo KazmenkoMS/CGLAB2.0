@@ -6,15 +6,9 @@
 #include "imgui_impl_dx12.h"
 #include "imgui_impl_win32.h"
 #include "imgui.h"
-Camera cam;
+
 static int imguiID = 0;
-int renderlodlevel = 0;
-int tileRenderIndex = 0;
-bool colordebug = 1;
-bool showborders = 1;
-static bool wireframe = false;
-static bool dynamicLOD = true;
-static bool renderOneTile = false;
+
 
 #pragma comment(lib, "d3dcompiler.lib")
 #pragma comment(lib, "D3D12.lib")
@@ -83,12 +77,12 @@ bool CGLAB::Initialize()
 	AllocConsole();
 
 	// Перенаправляем стандартные потоки.
-	 freopen("CONIN$", "r", stdin);
+	freopen("CONIN$", "r", stdin);
 	freopen("CONOUT$", "w", stdout);
 	freopen("CONOUT$", "w", stderr);
 
-	cam.SetPosition(0, 3, 10);
-	cam.RotateY(MathHelper::Pi);
+	cam.SetPosition(-300, 230, 1100);
+	cam.YawPitch(-3.14f/5,0);
     if(!D3DApp::Initialize())
         return false;
 
@@ -137,7 +131,7 @@ void CGLAB::OnResize()
 	CreateGBuffer();
 	BuildDescriptorHeaps();
     // The window resized, so update the aspect ratio and recompute the projection matrix.
-    XMMATRIX P = XMMatrixPerspectiveFovLH(0.4*MathHelper::Pi, AspectRatio(), 1.0f, 20000.0f);
+	XMMATRIX P = cam.GetProj();
     XMStoreFloat4x4(&mProj, P);
 
 
@@ -288,15 +282,15 @@ void CGLAB::RenderIMGUI()
 			{
 				ImGui::Text("Visible Terrain Tiles: %d", (int)m_visibleTerrainTiles.size());
 				ImGui::DragFloat("Height Scale", &heightScale,1.0f, 1.0f, 40000.0f);
-				ImGui::SliderInt("LodLevel", &renderlodlevel, 0, 6);
-				ImGui::Checkbox("Wireframe", &wireframe);
-				ImGui::Checkbox("DynamicLOD", &dynamicLOD);
+				ImGui::SliderInt("LodLevel", &m_terrainSystem->renderlodlevel, 0, 6);
+				ImGui::Checkbox("Wireframe", &m_terrainSystem->wireframe);
+				ImGui::Checkbox("DynamicLOD", &m_terrainSystem->dynamicLOD);
 				ImGui::Separator();
 				ImGui::Text("Debug");
-				ImGui::Checkbox("Render One Tile", &renderOneTile);
-				ImGui::SliderInt("Tile Index", &tileRenderIndex,0,m_terrainSystem->GetAllTiles().size());
-				ImGui::Checkbox("Colors Debug", &colordebug);
-				ImGui::Checkbox("Show borders", &showborders);
+				ImGui::Checkbox("Render One Tile", &m_terrainSystem->renderOneTile);
+				ImGui::SliderInt("Tile Index", &m_terrainSystem->tileRenderIndex,0,(int)m_terrainSystem->GetAllTiles().size());
+				ImGui::Checkbox("Colors Debug", &m_terrainSystem->colordebug);
+				ImGui::Checkbox("Show borders", &m_terrainSystem->showborders);
 
 			}
 			ImGui::EndTabItem();
@@ -304,7 +298,8 @@ void CGLAB::RenderIMGUI()
 		if (ImGui::BeginTabItem("Camera"))
 		{
 			ImGui::SliderFloat("Camera Speed", &cam.GetSpeed(), 1.0f, 20.0f);
-
+			auto campos = cam.GetPosition();
+			ImGui::Text("Camera Position: X=%.2f, Y=%.2f, Z=%.2f",campos.m128_f32[0], campos.m128_f32[1], campos.m128_f32[2]);
 			
 			ImGui::EndTabItem();
 		}
@@ -383,7 +378,6 @@ void CGLAB::OnMouseMove(WPARAM btnState, int x, int y)
 			// Update angles based on input to orbit camera around box.
 
 			cam.YawPitch(dx, -dy);
-
 		}
 		mLastMousePos.x = x;
 		mLastMousePos.y = y;
@@ -395,11 +389,11 @@ void CGLAB::OnKeyPressed(const GameTimer& gt, WPARAM key)
 {
 	if (GET_WHEEL_DELTA_WPARAM(key) > 0 && !ImGui::GetIO().WantCaptureMouse)
 	{
-		cam.IncreaseSpeed(0.05);
+		cam.IncreaseSpeed(0.05f);
 	}
 	else if (GET_WHEEL_DELTA_WPARAM(key) < 0 && !ImGui::GetIO().WantCaptureMouse)
 	{
-		cam.IncreaseSpeed(-0.05);
+		cam.IncreaseSpeed(-0.05f);
 	}
 	switch (key)
 	{
@@ -507,8 +501,8 @@ void CGLAB::UpdateTerrainCBs(const GameTimer& gt)
 		tileConstants.TileSize = t->tileSize;
 		tileConstants.mapSize = m_terrainSystem->m_worldSize;
 		tileConstants.hScale = heightScale;
-		tileConstants.debugMode = colordebug;
-		tileConstants.showborders = showborders;
+		tileConstants.debugMode = m_terrainSystem->colordebug;
+		tileConstants.showborders = m_terrainSystem->showborders;
 		currTileCB->CopyData(t->tileIndex, tileConstants);
 		
 		t->NumFramesDirty--;
@@ -562,10 +556,10 @@ void CGLAB::UpdateLightCBs(const GameTimer& gt)
 
 			// Define the orthographic projection volume
 			// These values depend heavily on your scene size.
-			float viewWidth = 600.0f; // Adjust to fit your scene
-			float viewHeight = 600.0f;
+			float viewWidth = 1024; // Adjust to fit your scene
+			float viewHeight = 1024;
 			float nearZ = 1.0f;
-			float farZ = 1000.0f; // Adjust
+			float farZ = 10000.0f; // Adjust
 			XMMATRIX lightProj = XMMatrixIdentity();
 			if (l.type == 2)
 				lightProj = XMMatrixOrthographicLH(viewWidth, viewHeight, nearZ, farZ);
@@ -941,7 +935,7 @@ void CGLAB::BuildShadowPassRootSignature()
 void CGLAB::CreatePointLight(XMFLOAT3 pos, XMFLOAT3 color, float faloff_start, float faloff_end, float strength)
 {
 	Light light;
-	light.LightCBIndex = mLights.size();
+	light.LightCBIndex = static_cast<int>(mLights.size());
 
 	light.Position = pos;
 	light.Color = color;
@@ -955,7 +949,7 @@ void CGLAB::CreatePointLight(XMFLOAT3 pos, XMFLOAT3 color, float faloff_start, f
 void CGLAB::CreateSpotLight(XMFLOAT3 pos, XMFLOAT3 rot, XMFLOAT3 color, float faloff_start, float faloff_end, float strength, float spotpower)
 {
 	Light light;
-	light.LightCBIndex = mLights.size();
+	light.LightCBIndex = static_cast<int>(mLights.size());
 
 	light.Position = pos;
 	light.Color = color;
@@ -973,7 +967,7 @@ void CGLAB::BuildLights()
 {
 	// ambient
 	Light ambient;
-	ambient.LightCBIndex = mLights.size();
+	ambient.LightCBIndex = static_cast<int>(mLights.size());
 	ambient.Position = { 3.0f, 0.0f, 3.0f };
 	ambient.Color = { 1,1,1 }; // need only x
 	ambient.Strength = 1; 
@@ -983,8 +977,8 @@ void CGLAB::BuildLights()
 
 	// directional
 	Light dir;
-	dir.LightCBIndex = mLights.size();
-	dir.Position = { 0,300,0 };
+	dir.LightCBIndex = static_cast<int>(mLights.size());
+	dir.Position = { 500,8192,500 };
 	dir.Direction = { 0, -1, 0 };
 	dir.Color = { 1,1,1 };
 	dir.Strength = 1;
@@ -1091,7 +1085,7 @@ void CGLAB::BuildShadowMapViews()
 			light.ShadowMapDsvHandle.Offset(i, mDsvDescriptorSize); // Use the stored index
 			md3dDevice->CreateDepthStencilView(light.ShadowMap.Get(), &dsvDesc, light.ShadowMapDsvHandle);
 
-			light.ShadowMapSrvHeapIndex = mTextures.size() + 3 + i;
+			light.ShadowMapSrvHeapIndex = static_cast<int>(mTextures.size()) + 3 + i;
 			i++;
 		}
 	}
@@ -1109,7 +1103,7 @@ void CGLAB::BuildDescriptorHeaps()
 	// Create the SRV heap.
 	//
 	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-	srvHeapDesc.NumDescriptors = mTextures.size() + 3 + mLights.size();
+	srvHeapDesc.NumDescriptors = static_cast<int>(mTextures.size()) + 3 + static_cast<int>(mLights.size());
 	srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 	srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvDescriptorHeap)));
@@ -1233,7 +1227,7 @@ void CGLAB::BuildCustomMeshGeometry(std::string name, UINT& meshVertexOffset, UI
 	unsigned int nMeshes = scene->mNumMeshes;
 	ObjectsMeshCount[name] = nMeshes;
 	
-	for (int i = 0;i < scene->mNumMeshes;i++)
+	for (unsigned int i = 0;i < scene->mNumMeshes;i++)
 	{
 		GeometryGenerator::MeshData meshData;
 		aiMesh* mesh = scene->mMeshes[i];
@@ -1304,7 +1298,7 @@ void CGLAB::BuildCustomMeshGeometry(std::string name, UINT& meshVertexOffset, UI
 		// Если требуется, можно выполнить дополнительные операции, например, нормализацию, вычисление тангенсов и т.д.
 		meshDatas.push_back(meshData);
 	}
-	for (int k = 0;k < scene->mNumMaterials;k++)
+	for (unsigned int k = 0;k < scene->mNumMaterials;k++)
 	{
 		aiString texPath;
 		scene->mMaterials[k]->GetTexture(aiTextureType_DIFFUSE, 0, &texPath);
@@ -1320,16 +1314,16 @@ void CGLAB::BuildCustomMeshGeometry(std::string name, UINT& meshVertexOffset, UI
 	}
 
 	UINT totalMeshSize = 0;
-	UINT k = vertices.size();
+	UINT k = static_cast<int>(vertices.size());
 	std::vector<std::pair<GeometryGenerator::MeshData,SubmeshGeometry>>meshSubmeshes;
 	for (auto mesh : meshDatas)
 	{
 		meshVertexOffset = meshVertexOffset + prevVertSize;
-		prevVertSize = mesh.Vertices.size();
-		totalMeshSize += mesh.Vertices.size();
+		prevVertSize = static_cast<int>(mesh.Vertices.size());
+		totalMeshSize += static_cast<int>(mesh.Vertices.size());
 
 		meshIndexOffset = meshIndexOffset + prevIndSize;
-		prevIndSize = mesh.Indices32.size();
+		prevIndSize = static_cast<int>(mesh.Indices32.size());
 		SubmeshGeometry meshSubmesh;
 		meshSubmesh.IndexCount = (UINT)mesh.Indices32.size();
 		meshSubmesh.StartIndexLocation = meshIndexOffset;
@@ -1542,7 +1536,6 @@ void CGLAB::BuildPSOs()
 
 	// Lighting pass PSO
 
-
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC lightPsoDesc = {};
 	lightPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() }; // если используем SV_VertexID в шейдере, входного layout не нужно
 	lightPsoDesc.pRootSignature = mLightingRootSignature.Get(); // наша новая корнев. сигнатура для освещения
@@ -1569,13 +1562,8 @@ void CGLAB::BuildPSOs()
 	blendDesc.IndependentBlendEnable = FALSE; // Only one render target, so set to FALSE
 	blendDesc.RenderTarget[0] = rtBlendDesc;
 	lightPsoDesc.BlendState = blendDesc;
-
-
-
-
 	lightPsoDesc.SampleMask = UINT_MAX;
 	lightPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-	
 	lightPsoDesc.NumRenderTargets = 1;                   // выводим один финальный цвет
 	lightPsoDesc.RTVFormats[0] = mBackBufferFormat;      // формат экрана (обычно DXGI_FORMAT_R8G8B8A8_UNORM)
 	lightPsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
@@ -1591,8 +1579,6 @@ void CGLAB::BuildPSOs()
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&lightPsoDesc, IID_PPV_ARGS(&mPSOs["lighting"])));
 
 	// Lighting(QUAD) pass PSO
-
-
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC lightQUADPsoDesc = lightPsoDesc;
 	lightQUADPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
 	lightQUADPsoDesc.VS = { reinterpret_cast<BYTE*>(mShaders["lightingQUADVS"]->GetBufferPointer()),
@@ -1600,7 +1586,6 @@ void CGLAB::BuildPSOs()
 	
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&lightQUADPsoDesc, IID_PPV_ARGS(&mPSOs["lightingQUAD"])));
 	// Debug lighting shapes PSO
-
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC lightShapesPsoDesc = lightPsoDesc;
 	lightShapesPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
 	lightShapesPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
@@ -1611,7 +1596,6 @@ void CGLAB::BuildPSOs()
 	lightShapesPsoDesc.DepthStencilState = dsDesc;
 	lightShapesPsoDesc.PS = { reinterpret_cast<BYTE*>(mShaders["lightingPSDebug"]->GetBufferPointer()),
 						mShaders["lightingPSDebug"]->GetBufferSize() };
-
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&lightShapesPsoDesc, IID_PPV_ARGS(&mPSOs["lightingShapes"])));
 
 	// PSO for shadow map pass
@@ -1638,7 +1622,8 @@ void CGLAB::BuildPSOs()
 
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&shadowPsoDesc, IID_PPV_ARGS(&mPSOs["shadow_map"])));
 
-	// PSO для terrain
+
+	// PSO for terrain
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC terrainPsoDesc = {};
 	terrainPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
 	terrainPsoDesc.pRootSignature = mTerrainRootSignature.Get();
@@ -1681,7 +1666,7 @@ void CGLAB::BuildFrameResources()
     for(int i = 0; i < gNumFrameResources; ++i)
     {
         mFrameResources.push_back(std::make_unique<FrameResource>(md3dDevice.Get(),
-            1, (UINT)mAllRitems.size(), (UINT)mMaterials.size(),(UINT)mLights.size(),m_terrainSystem->GetAllTiles().size()));
+            1, (UINT)mAllRitems.size(), (UINT)mMaterials.size(),(UINT)mLights.size(),(UINT)m_terrainSystem->GetAllTiles().size()));
     }
 	mCurrFrameResourceIndex = 0;
 	mCurrFrameResource = mFrameResources[mCurrFrameResourceIndex].get();
@@ -1718,7 +1703,7 @@ void CGLAB::BuildMaterials()
 }
 void CGLAB::RenderCustomMesh(std::string unique_name, std::string meshname, std::string materialName, XMFLOAT3 Scale, XMFLOAT3 Rotation, XMFLOAT3 Position)
 {
-	for (int i = 0;i < ObjectsMeshCount[meshname];i++)
+	for (unsigned int i = 0;i < ObjectsMeshCount[meshname];i++)
 	{
 		auto rItem = std::make_unique<RenderItem>();
 		std::string textureFile;
@@ -1735,7 +1720,7 @@ void CGLAB::RenderCustomMesh(std::string unique_name, std::string meshname, std:
 		rItem->Position = Position;
 		rItem->RotationAngle = Rotation;
 		rItem->Scale = Scale;
-		rItem->ObjCBIndex = mAllRitems.size();
+		rItem->ObjCBIndex = static_cast<int>(mAllRitems.size());
 		rItem->Geo = mGeometries["shapeGeo"].get();
 		rItem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 		std::string matname = rItem->Geo->MultiDrawArgs[meshname][i].first.matName;
@@ -1755,7 +1740,7 @@ void CGLAB::RenderCustomMesh(std::string unique_name, std::string meshname, std:
 
 void CGLAB::BuildRenderItems()
 {
-	auto boxRitem = std::make_unique<RenderItem>();
+	/*auto boxRitem = std::make_unique<RenderItem>();
 	boxRitem->Name = "box";
 	XMStoreFloat4x4(&boxRitem->World, XMMatrixScaling(2.0f, 2.0f, 2.0f) * XMMatrixTranslation(0.0f, 5.0f, -10.0f));
 	XMStoreFloat4x4(&boxRitem->TexTransform, XMMatrixScaling(1,1,1));
@@ -1766,14 +1751,14 @@ void CGLAB::BuildRenderItems()
 	boxRitem->IndexCount = boxRitem->Geo->DrawArgs["sphere"].IndexCount;
 	boxRitem->StartIndexLocation = boxRitem->Geo->DrawArgs["sphere"].StartIndexLocation;
 	boxRitem->BaseVertexLocation = boxRitem->Geo->DrawArgs["sphere"].BaseVertexLocation;
-	mAllRitems.push_back(std::move(boxRitem));
+	mAllRitems.push_back(std::move(boxRitem));*/
 
 	//RenderCustomMesh("building", "sponza", "", XMFLOAT3(0.07, 0.07, 0.07), XMFLOAT3(0, 3.14 / 2, 0), XMFLOAT3(0, 0, 0));
-	RenderCustomMesh("nigga", "negr", "NiggaMat", XMFLOAT3(3, 3, 3), XMFLOAT3(0, 3.14, 0), XMFLOAT3(0, 3, 0));
+	/*RenderCustomMesh("nigga", "negr", "NiggaMat", XMFLOAT3(3, 3, 3), XMFLOAT3(0, 3.14, 0), XMFLOAT3(0, 3, 0));
 	RenderCustomMesh("nigga2", "negr", "NiggaMat", XMFLOAT3(3, 3, 3), XMFLOAT3(0, -3.14 / 2, 0), XMFLOAT3(-10, 3, 30));
 	RenderCustomMesh("eyeL", "left", "eye", XMFLOAT3(3, 3, 3), XMFLOAT3(0, 3.14, 0), XMFLOAT3(0.6,3.87,1.1));
 	RenderCustomMesh("eyeR", "right", "eye", XMFLOAT3(3, 3, 3), XMFLOAT3(0, 3.14, 0), XMFLOAT3(-0.6, 3.87, 1.1));
-	
+	*/
 	std::vector<std::shared_ptr<TerrainTile>>& allTiles = m_terrainSystem->GetAllTiles();
 	// Теперь, для каждого видимого тайла, создаем или обновляем его RenderItem.
 	int a = 0;
@@ -1782,8 +1767,8 @@ void CGLAB::BuildRenderItems()
 		auto renderItem = std::make_unique<RenderItem>();
 		renderItem->World = MathHelper::Identity4x4();
 		renderItem->TexTransform = MathHelper::Identity4x4();
-		renderItem->ObjCBIndex = mAllRitems.size(); // Присваиваем индекс позже
-		renderItem->Mat = mMaterials["terrainMat"].get(); // Используем материал для травы
+		renderItem->ObjCBIndex = static_cast<int>(mAllRitems.size()); 
+		renderItem->Mat = mMaterials["terrainMat"].get(); 
 		renderItem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 		renderItem->Name = "TILE";
 		// Выбираем LOD-уровень в зависимости от глубины узла квадродерева.
@@ -1798,19 +1783,16 @@ void CGLAB::BuildRenderItems()
 		XMMATRIX translation = XMMatrixTranslation(tile->worldPos.x, tile->worldPos.y, tile->worldPos.z);
 		XMStoreFloat4x4(&renderItem->World, translation);
 
-		tile->renderItemIndex = mAllRitems.size() + a;
+		tile->renderItemIndex = static_cast<int>(mAllRitems.size()) + a;
 		mAllRitems.push_back(std::move(renderItem));
 	}
 
 	BuildFrameResources();
 
-
-	// Добавляем все terrain render items в opaque список
 	for (auto& e : mAllRitems)
 	{
 		if (e->Name.find("TILE") != std::string::npos)
 		{
-			m_visibleTerrItems.push_back(e.get());
 			continue;
 		}
 		mOpaqueRitems.push_back(e.get());
@@ -1823,8 +1805,11 @@ void CGLAB::BuildRenderItems()
 void CGLAB::DrawSceneToShadowMap()
 {
 	UINT shadowCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(PassShadowConstants));
+	UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
+	
 	for (auto light : mLights)
 	{
+
 		if (light.type == 2 || light.type == 3)
 		{
 			if (light.CastsShadows)
@@ -1847,8 +1832,7 @@ void CGLAB::DrawSceneToShadowMap()
 				D3D12_GPU_VIRTUAL_ADDRESS shadowCBAddress = mCurrFrameResource->PassShadowCB->Resource()->GetGPUVirtualAddress() + light.LightCBIndex * shadowCBByteSize;
 				mCommandList->SetGraphicsRootConstantBufferView(1, shadowCBAddress);
 				// Draw all opaque items.
-				UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
-
+				
 				auto objectCB = mCurrFrameResource->ObjectCB->Resource();
 
 				// For each render item...
@@ -1868,14 +1852,43 @@ void CGLAB::DrawSceneToShadowMap()
 				mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(light.ShadowMap.Get(),
 					D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
 			}
+
+			
 			
 		}
 
 	}
-
 }
 void CGLAB::DeferredDraw(const GameTimer& gt)
 {
+	// updating visible terrain tiles TODO: move to terrainsystem.cpp
+	m_visibleTerrainTiles.clear();
+	// costyl
+	if (!m_terrainSystem->dynamicLOD)
+	{
+		if (!m_terrainSystem->renderOneTile)
+		{
+			for (auto& t : m_terrainSystem->GetAllTiles())
+			{
+				if (t->lodLevel == m_terrainSystem->renderlodlevel)
+					m_visibleTerrainTiles.push_back(t.get());
+			}
+		}
+		else
+		{
+			for (auto& t : m_terrainSystem->GetAllTiles())
+			{
+				if (t->tileIndex == m_terrainSystem->tileRenderIndex)
+					m_visibleTerrainTiles.push_back(t.get());
+			}
+		}
+	}
+	else
+	{
+		m_terrainSystem->GetVisibleTiles(m_visibleTerrainTiles);
+	}
+
+
 	auto cmdListAlloc = mCurrFrameResource->CmdListAlloc;
 	ThrowIfFailed(cmdListAlloc->Reset());
 	ThrowIfFailed(mCommandList->Reset(cmdListAlloc.Get(), nullptr));
@@ -1883,7 +1896,7 @@ void CGLAB::DeferredDraw(const GameTimer& gt)
 	DrawSceneToShadowMap();
 
 
-	// ==GEOMETRY PASS==
+	// ===============GEOMETRY PASS=====================
 	mCommandList->SetPipelineState(mPSOs["gbuffer"].Get());
 
 
@@ -1929,43 +1942,18 @@ void CGLAB::DeferredDraw(const GameTimer& gt)
 	mCommandList->SetGraphicsRootConstantBufferView(3, passCB->GetGPUVirtualAddress());
 
 	DrawRenderItems(mCommandList.Get(), mOpaqueRitems);
-	m_visibleTerrItems.clear();
-	m_visibleTerrainTiles.clear();
-	// costyl
-	if (!dynamicLOD)
-	{
-		if (!renderOneTile)
-		{
-			for (auto& t : m_terrainSystem->GetAllTiles())
-			{
-				if (t->lodLevel == renderlodlevel)
-					m_visibleTerrainTiles.push_back(t.get());
-			}
-		}
-		else
-		{
-			for (auto& t : m_terrainSystem->GetAllTiles())
-			{
-				if (t->tileIndex == tileRenderIndex)
-					m_visibleTerrainTiles.push_back(t.get());
-			}
-		}
-	}
-	else
-	{
-		m_terrainSystem->GetVisibleTiles(m_visibleTerrainTiles);
-	}
 	
+	// ===============RENDERING TERRAIN=====================
 	if (!m_visibleTerrainTiles.empty())
 	{
 		// Переключаемся на terrain PSO
-		if (wireframe)
+		if (m_terrainSystem->wireframe)
 			mCommandList->SetPipelineState(mPSOs["terrainWIRE"].Get());
 		else
 			mCommandList->SetPipelineState(mPSOs["terrain"].Get());
 		mCommandList->SetGraphicsRootSignature(mTerrainRootSignature.Get());
 		mCommandList->SetGraphicsRootConstantBufferView(4, passCB->GetGPUVirtualAddress());
-		DrawTilesRenderItems(mCommandList.Get(), m_visibleTerrItems, m_visibleTerrainTiles,m_terrainSystem->m_hmapIndex);
+		DrawTilesRenderItems(mCommandList.Get(), m_visibleTerrainTiles,m_terrainSystem->m_hmapIndex);
 	}
 
 
@@ -1983,33 +1971,22 @@ void CGLAB::DeferredDraw(const GameTimer& gt)
 	// ===============LIGHTING PASS=====================
 
 	mCommandList->SetPipelineState(mPSOs["lighting"].Get());
-
 	mCommandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
-
 	mCommandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::Black, 0, nullptr);
-
-
-
-
 	mCommandList->SetGraphicsRootSignature(mLightingRootSignature.Get());
-
 	mCommandList->SetDescriptorHeaps(1, mSrvDescriptorHeap.GetAddressOf());
 
-
 	CD3DX12_GPU_DESCRIPTOR_HANDLE positionHandle(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
-	positionHandle.Offset(mTextures.size() + 0, mCbvSrvDescriptorSize);
+	positionHandle.Offset(static_cast<int>(mTextures.size()) + 0, mCbvSrvDescriptorSize);
 	CD3DX12_GPU_DESCRIPTOR_HANDLE normalHandle(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
-	normalHandle.Offset(mTextures.size() + 1, mCbvSrvDescriptorSize);
+	normalHandle.Offset(static_cast<int>(mTextures.size()) + 1, mCbvSrvDescriptorSize);
 	CD3DX12_GPU_DESCRIPTOR_HANDLE albedoHandle(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
-	albedoHandle.Offset(mTextures.size() + 2, mCbvSrvDescriptorSize);
+	albedoHandle.Offset(static_cast<int>(mTextures.size()) + 2, mCbvSrvDescriptorSize);
 	mCommandList->SetGraphicsRootDescriptorTable(0, positionHandle); // t0
 	mCommandList->SetGraphicsRootDescriptorTable(1, normalHandle); // t1
 	mCommandList->SetGraphicsRootDescriptorTable(2, albedoHandle); // t2
 	mCommandList->SetGraphicsRootConstantBufferView(3, mCurrFrameResource->PassCB->Resource()->GetGPUVirtualAddress()); //b0
 	mCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-
-
 
 	UINT lightCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(LightConstants));
 	// draw light
@@ -2042,7 +2019,7 @@ void CGLAB::DeferredDraw(const GameTimer& gt)
 	}
 
 
-	// draw light shapes
+	// drawing light shapes
 	mCommandList->SetPipelineState(mPSOs["lightingShapes"].Get());
 	for (auto& light : mLights)
 	{
@@ -2061,7 +2038,7 @@ void CGLAB::DeferredDraw(const GameTimer& gt)
 	}
 
 
-	// После освещения:
+	// gbuffer resource transition: PS Resource -> Render Target:
 	D3D12_RESOURCE_BARRIER revertBarrier[3] = {
 		CD3DX12_RESOURCE_BARRIER::Transition(mGBufferAlbedo.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET),
 		CD3DX12_RESOURCE_BARRIER::Transition(mGBufferNormal.Get(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_RENDER_TARGET),
@@ -2077,8 +2054,6 @@ void CGLAB::DeferredDraw(const GameTimer& gt)
 	mCommandList->ResourceBarrier(1, &presentBarrier);
 
 
-		
-	
 	// Done recording commands.
 	ThrowIfFailed(mCommandList->Close());
 
@@ -2098,8 +2073,6 @@ void CGLAB::DeferredDraw(const GameTimer& gt)
 	// set until the GPU finishes processing all the commands prior to this Signal().
 	mCommandQueue->Signal(mFence.Get(), mCurrentFence);
 }
-
-
 
 
 void CGLAB::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems)
@@ -2135,7 +2108,7 @@ void CGLAB::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vecto
     }
 }
 
-void CGLAB::DrawTilesRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems, std::vector<TerrainTile*> tiles,int HeighIndex)
+void CGLAB::DrawTilesRenderItems(ID3D12GraphicsCommandList* cmdList, std::vector<TerrainTile*> tiles,int HeighIndex)
 {
 	UINT objCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ObjectConstants));
 	UINT matCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(MaterialConstants));

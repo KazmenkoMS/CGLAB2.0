@@ -2,104 +2,17 @@
 #include "CGLAB.h"
 // Реализация методов terrain системы
 
-// 1. Реализация AABB::IntersectsFrustum
-bool AABB::IntersectsFrustum(const XMFLOAT4 frustumPlanes[6]) const
-{
-
-    for (int i = 0; i < 6; i++)
-    {
-        XMVECTOR plane = XMLoadFloat4(&frustumPlanes[i]);
-
-        // Найдем positive vertex для плоскости
-        XMFLOAT3 positiveVertex;
-        positiveVertex.x = (XMVectorGetX(plane) >= 0) ? maxPoint.x : minPoint.x;
-        positiveVertex.y = (XMVectorGetY(plane) >= 0) ? maxPoint.y : minPoint.y;
-        positiveVertex.z = (XMVectorGetZ(plane) >= 0) ? maxPoint.z : minPoint.z;
-
-        XMVECTOR posVertex = XMLoadFloat3(&positiveVertex);
-
-        // Если positive vertex за плоскостью, то AABB полностью вне frustum
-        if (XMVectorGetX(XMPlaneDotCoord(plane, posVertex)) < 0)
-        {
-            return false;
-        }
-    }
-    return true;
-}
-
-// 2. Извлечение плоскостей frustum из view-projection матрицы
-void CGLAB::ExtractFrustumPlanes(const XMMATRIX& viewProj)
-{
-    XMFLOAT4X4 vp;
-    XMStoreFloat4x4(&vp, viewProj);
-
-    // Left plane
-    m_frustumPlanes[0].x = vp._14 + vp._11;
-    m_frustumPlanes[0].y = vp._24 + vp._21;
-    m_frustumPlanes[0].z = vp._34 + vp._31;
-    m_frustumPlanes[0].w = vp._44 + vp._41;
-
-    // Right plane
-    m_frustumPlanes[1].x = vp._14 - vp._11;
-    m_frustumPlanes[1].y = vp._24 - vp._21;
-    m_frustumPlanes[1].z = vp._34 - vp._31;
-    m_frustumPlanes[1].w = vp._44 - vp._41;
-
-    // Top plane
-    m_frustumPlanes[2].x = vp._14 - vp._12;
-    m_frustumPlanes[2].y = vp._24 - vp._22;
-    m_frustumPlanes[2].z = vp._34 - vp._32;
-    m_frustumPlanes[2].w = vp._44 - vp._42;
-
-    // Bottom plane
-    m_frustumPlanes[3].x = vp._14 + vp._12;
-    m_frustumPlanes[3].y = vp._24 + vp._22;
-    m_frustumPlanes[3].z = vp._34 + vp._32;
-    m_frustumPlanes[3].w = vp._44 + vp._42;
-
-    // ИСПРАВЛЕНИЕ: Near plane
-    m_frustumPlanes[4].x = vp._14 + vp._13;
-    m_frustumPlanes[4].y = vp._24 + vp._23;
-    m_frustumPlanes[4].z = vp._34 + vp._33;
-    m_frustumPlanes[4].w = vp._44 + vp._43;
-
-    // ИСПРАВЛЕНИЕ: Far plane
-    m_frustumPlanes[5].x = vp._14 - vp._13;
-    m_frustumPlanes[5].y = vp._24 - vp._23;
-    m_frustumPlanes[5].z = vp._34 - vp._33;
-    m_frustumPlanes[5].w = vp._44 - vp._43;
-
-    // Нормализуем плоскости
-    for (int i = 0; i < 6; i++)
-    {
-        XMVECTOR plane = XMLoadFloat4(&m_frustumPlanes[i]);
-        plane = XMPlaneNormalize(plane);
-        XMStoreFloat4(&m_frustumPlanes[i], plane);
-    }
-}
 
 bool QuadTreeNode::ShouldSplit(const XMFLOAT3& cameraPos, float heightscale,int mapsize) const
 {
-    XMFLOAT3 bounds[5]; // corners and center
-    bounds[0] = XMFLOAT3(boundingBox.minPoint.x, 0, boundingBox.minPoint.z);
-    bounds[1] = XMFLOAT3(boundingBox.minPoint.x, 0, boundingBox.maxPoint.z);
-    bounds[2] = XMFLOAT3(boundingBox.maxPoint.x, 0, boundingBox.maxPoint.z);
-    bounds[3] = XMFLOAT3(boundingBox.maxPoint.x, 0, boundingBox.minPoint.z);
-    bounds[4] = XMFLOAT3((boundingBox.maxPoint.x - boundingBox.minPoint.x) * 0.5f + boundingBox.minPoint.x, 0, (boundingBox.maxPoint.z - boundingBox.minPoint.z)*0.5f + boundingBox.minPoint.z);
-    float tilesize = boundingBox.maxPoint.x - boundingBox.minPoint.x;
     auto camPos = cameraPos;
     camPos.y = 0;
-    
-    XMFLOAT3 closestPoint; // closest point to camera on bounding box 
-    closestPoint.x = std::clamp(camPos.x, boundingBox.minPoint.x, boundingBox.maxPoint.x);
-    closestPoint.y = std::clamp(camPos.x, boundingBox.minPoint.y, boundingBox.maxPoint.y);
-    BoundingBox bb;
     XMVECTOR camPosVec = XMLoadFloat3(&camPos);
-    float lodneeddist = ( mapsize/2 - depth * mapsize/16);
+    float lodneeddist = ( mapsize/2.0f - depth * mapsize/16);
     BoundingSphere sphere;
     sphere.Center = cameraPos;
     sphere.Radius = lodneeddist;
-    if (sphere.Intersects(boundingBox.aabb))
+    if (sphere.Intersects(boundingBox))
     {
         return true;
     }
@@ -107,12 +20,11 @@ bool QuadTreeNode::ShouldSplit(const XMFLOAT3& cameraPos, float heightscale,int 
 }
 
 // 4. Обновление видимости в квадродереве
-void QuadTreeNode::UpdateVisibility(const XMFLOAT4 frustumPlanes[6], const XMFLOAT3& cameraPos, std::vector<TerrainTile*>& visibleTiles,float heightscale, int mapsize)
+void QuadTreeNode::UpdateVisibility(BoundingFrustum& frustum, const XMFLOAT3& cameraPos, std::vector<TerrainTile*>& visibleTiles,float heightscale, int mapsize)
 {
-    // Проверка на видимость по AABB
-    if (!boundingBox.IntersectsFrustum(frustumPlanes))
+    if (frustum.Contains(boundingBox) == DISJOINT)
     {
-        return; // Узел полностью не виден, нет смысла идти дальше.
+        return; // Узел полностью не виден
     }
 
     // Если узел является "листом" (нет дочерних узлов) или не нужно его разбивать
@@ -131,7 +43,7 @@ void QuadTreeNode::UpdateVisibility(const XMFLOAT4 frustumPlanes[6], const XMFLO
         {
             if (children[i])
             {
-                children[i]->UpdateVisibility(frustumPlanes, cameraPos, visibleTiles,heightscale, mapsize);
+                children[i]->UpdateVisibility(frustum, cameraPos, visibleTiles,heightscale, mapsize);
             }
         }
     }
@@ -152,11 +64,9 @@ void TerrainSystem::Initialize(ID3D12Device* device, int HeightMapIndex,
     // Создаем корневой узел квадродерева
     m_rootNode = std::make_unique<QuadTreeNode>();
     m_rootNode->depth = 0;
-    m_rootNode->boundingBox.minPoint = XMFLOAT3(-512 * 0.5f, -10.0f, -512 * 0.5f);
-    m_rootNode->boundingBox.maxPoint = XMFLOAT3(512 * 0.5f, 40.0f, 512 * 0.5f);
 
     // Строим квадродерево рекурсивно
-    int initialSize = worldSize; // 2^maxLOD
+    int initialSize = (int)worldSize; // 2^maxLOD
     BuildQuadTree(m_rootNode.get(), 0, 0, initialSize, 0);
 }
 
@@ -168,10 +78,10 @@ void TerrainSystem::BuildQuadTree(QuadTreeNode* node, int x, int y, int size, in
 
     // Вычисляем AABB для этого узла.
     // Пока что упрощенно, без учета хайтмапы
-    node->boundingBox = CalculateTileAABB(XMFLOAT3(x, 0, y), tileSize, -10.0f, 400.0f);
+    node->boundingBox = CalculateTileAABB(XMFLOAT3((float)x, 0, (float)y), tileSize, -10.0f, 400.0f);
    
     auto tile = std::make_unique<TerrainTile>();
-    tile->worldPos = XMFLOAT3(x, 0, y);
+    tile->worldPos = XMFLOAT3((float)x, 0, (float)y);
     tile->lodLevel = depth;
     tile->tileSize = tileSize;
     tile->isVisible = true;
@@ -179,7 +89,6 @@ void TerrainSystem::BuildQuadTree(QuadTreeNode* node, int x, int y, int size, in
     tile->tileIndex = tileIndex++;
     m_allTiles.push_back(std::move(tile));
     node->tile = m_allTiles.back().get(); // Указываем на созданный тайл
-  //  std::cout << "CREATE TILE " << tileIndex << " LOD: " << depth << "TILESIZE: " << tileSize << "\n" ;
     // Если мы достигли максимальной глубины, создаем тайл.
     if (depth != m_maxLOD)
     {
@@ -193,23 +102,23 @@ void TerrainSystem::BuildQuadTree(QuadTreeNode* node, int x, int y, int size, in
         }
     }
 }
-AABB TerrainSystem::CalculateTileAABB(const XMFLOAT3& pos, float size, float minHeight, float maxHeight)
+BoundingBox TerrainSystem::CalculateTileAABB(const XMFLOAT3& pos, float size, float minHeight, float maxHeight)
 {
-    AABB aabb;
-    aabb.minPoint = XMFLOAT3(pos.x, 0, pos.z);
-    aabb.maxPoint = XMFLOAT3(pos.x + size, 40000, pos.z + size); // 200 = maxheightscale
-    XMVECTOR pt1 = XMLoadFloat3(&aabb.minPoint);
-    XMVECTOR pt2 = XMLoadFloat3(&aabb.maxPoint);
-    BoundingBox::CreateFromPoints(aabb.aabb, pt1, pt2);
+    BoundingBox aabb;
+    auto minPoint = XMFLOAT3(pos.x, 0, pos.z);
+    auto maxPoint = XMFLOAT3(pos.x + size, 100, pos.z + size); // 200 = maxheightscale
+    XMVECTOR pt1 = XMLoadFloat3(&minPoint);
+    XMVECTOR pt2 = XMLoadFloat3(&maxPoint);
+    BoundingBox::CreateFromPoints(aabb, pt1, pt2);
     return aabb;
 }
 
-void TerrainSystem::Update(const XMFLOAT3& cameraPos, const XMFLOAT4 frustumPlanes[6])
+void TerrainSystem::Update(const XMFLOAT3& cameraPos, BoundingFrustum& frustum)
 {
     m_visibleTiles.clear();
     if (m_rootNode)
     {
-        m_rootNode->UpdateVisibility(frustumPlanes, cameraPos, m_visibleTiles, m_heightScale, m_worldSize);
+        m_rootNode->UpdateVisibility(frustum, cameraPos, m_visibleTiles, m_heightScale, (int)m_worldSize);
     }
 }
 
@@ -249,7 +158,7 @@ void CGLAB::GenerateTileGeometry(const XMFLOAT3& worldPos, float tileSize, int l
         }
     }
 
-    int mainVertexCount = vertices.size();
+    int mainVertexCount = static_cast<int>(vertices.size());
 
     // 2. Создаем вершины юбки (дублируем периметр и смещаем вниз)
     // Левая сторона (x = 0)
@@ -401,7 +310,7 @@ void CGLAB::BuildTerrainGeometry()
         GenerateTileGeometry(tile->worldPos, tile->tileSize, tile->lodLevel, tileVertices, tileIndices);
 
         // Смещаем индексы на количество уже добавленных вершин
-        UINT baseVertex = allVertices.size();
+        UINT baseVertex = static_cast<int>(allVertices.size());
         for (auto& index : tileIndices)
         {
             index += baseVertex;
@@ -409,8 +318,8 @@ void CGLAB::BuildTerrainGeometry()
 
         // Сохраняем submesh
         SubmeshGeometry submesh;
-        submesh.IndexCount = tileIndices.size();
-        submesh.StartIndexLocation = allIndices.size();
+        submesh.IndexCount = (UINT)tileIndices.size();
+        submesh.StartIndexLocation = (UINT)allIndices.size();
         submesh.BaseVertexLocation = 0;
 
         std::string submeshName = "tile_" + std::to_string(tileIdx) + "_LOD_" + std::to_string(tile->lodLevel);
@@ -464,10 +373,9 @@ void CGLAB::UpdateTerrain(const GameTimer& gt)
     XMMATRIX view = XMLoadFloat4x4(&mView);
     XMMATRIX proj = XMLoadFloat4x4(&mProj);
     XMMATRIX viewProj = XMMatrixMultiply(view, proj);
-    ExtractFrustumPlanes(viewProj);
 
     // Обновляем terrain систему. Это заполняет m_visibleTiles
-    m_terrainSystem->Update(cameraPosition, m_frustumPlanes);
+    m_terrainSystem->Update(cameraPosition, cam.GetFrustum());
     m_terrainSystem->m_heightScale = heightScale;
 
 }

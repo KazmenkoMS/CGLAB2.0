@@ -173,7 +173,9 @@
     <ClCompile Include="..\Common\imgui_tables.cpp" />
     <ClCompile Include="..\Common\imgui_widgets.cpp" />
     <ClCompile Include="..\Common\MathHelper.cpp" />
-    <ClCompile Include="CGLAB.cpp" />
+    <ClCompile Include="CGLAB.cpp">
+      <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
     <ClCompile Include="FrameResource.cpp" />
     <ClCompile Include="TerrainSystem.cpp" />
   </ItemGroup>
