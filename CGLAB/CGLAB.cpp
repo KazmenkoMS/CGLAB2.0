@@ -83,6 +83,9 @@ bool CGLAB::Initialize()
 
 	cam.SetPosition(-300, 230, 1100);
 	cam.YawPitch(-3.14f/5,0);
+	cam.SetLens(0.5f * MathHelper::Pi, AspectRatio(), 1.0f, 20000.0f);
+
+	cam.UpdateViewMatrix();
     if(!D3DApp::Initialize())
         return false;
 
@@ -297,10 +300,15 @@ void CGLAB::RenderIMGUI()
 		}
 		if (ImGui::BeginTabItem("Camera"))
 		{
-			ImGui::SliderFloat("Camera Speed", &cam.GetSpeed(), 1.0f, 20.0f);
 			auto campos = cam.GetPosition();
 			ImGui::Text("Camera Position: X=%.2f, Y=%.2f, Z=%.2f",campos.m128_f32[0], campos.m128_f32[1], campos.m128_f32[2]);
-			
+			ImGui::SliderFloat("Camera Speed", &cam.GetSpeed(), 1.0f, 20.0f);
+			float fov = cam.GetFovY();
+			ImGui::DragFloat("FOV", &fov, 0.01f, 0.01f, 3.14f);
+			cam.SetLens(fov, cam.GetAspect(), cam.GetNearZ(), cam.GetFarZ());
+			cam.UpdateViewMatrix();
+			XMMATRIX P = cam.GetProj();
+			XMStoreFloat4x4(&mProj, P);
 			ImGui::EndTabItem();
 		}
 		ImGui::EndTabBar();

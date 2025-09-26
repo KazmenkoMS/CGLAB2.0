@@ -9,8 +9,8 @@
 #include <iostream>
 #include "RenderItem.h"
 #include "TerrainSystem.h"
-
-
+#include "WICTextureLoader.h"
+#include <ResourceUploadBatch.h> // Необходим для загрузки в D3D12
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 using namespace DirectX::PackedVector;
@@ -169,4 +169,5 @@ private:
 	void UpdateTerrain(const GameTimer& gt);
 
 	Camera cam;
+
 };

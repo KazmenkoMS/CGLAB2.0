@@ -8,7 +8,6 @@ using namespace DirectX;
 
 Camera::Camera()
 {
-	SetLens(0.5f*MathHelper::Pi, 1.0f, 1.0f, 20000.0f);
 	DirectX::XMStoreFloat4(&orientation,DirectX::XMQuaternionIdentity());
 }
 
@@ -127,6 +126,7 @@ void Camera::SetLens(float fovY, float aspect, float zn, float zf)
 
 	XMMATRIX P = XMMatrixPerspectiveFovLH(mFovY, mAspect, mNearZ, mFarZ);
 	XMStoreFloat4x4(&mProj, P);
+	mViewDirty = true;
 }
 
 void Camera::LookAt(FXMVECTOR pos, FXMVECTOR target, FXMVECTOR worldUp)

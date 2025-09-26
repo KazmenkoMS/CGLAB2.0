@@ -140,4 +140,7 @@
     <Text Include="Shaders\ShadowMap.hlsl" />
     <Text Include="Shaders\Terrain.hlsl" />
   </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
+  </ItemGroup>
 </Project>

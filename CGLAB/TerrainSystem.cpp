@@ -57,10 +57,6 @@ void TerrainSystem::Initialize(ID3D12Device* device, int HeightMapIndex,
     m_maxLOD = maxLOD;
     m_heightScale = 50.0f; // настраиваемый параметр
     m_hmapIndex = HeightMapIndex;
-    // «агрузка heightmap (упрощенна€ верси€ - нужно адаптировать под ваш код)
-    // ThrowIfFailed(DirectX::CreateDDSTextureFromFile12(device, cmdList, 
-    //     heightmapPath.c_str(), m_heightmapTexture, uploadHeap));
-
     // —оздаем корневой узел квадродерева
     m_rootNode = std::make_unique<QuadTreeNode>();
     m_rootNode->depth = 0;
