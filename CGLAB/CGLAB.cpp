@@ -2054,8 +2054,15 @@ void CGLAB::DeferredDraw(const GameTimer& gt)
 	};
 	mCommandList->ResourceBarrier(3, revertBarrier);
 
+
+
+	// Устанавливаем heap ImGui перед отрисовкой
+	ID3D12DescriptorHeap* imguiheaps[] = { m_ImGuiSrvDescriptorHeap.Get() };
+	mCommandList->SetDescriptorHeaps(_countof(imguiheaps), imguiheaps);
 	ImGui::Render();
 	ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), mCommandList.Get());
+	ID3D12DescriptorHeap* mainHeaps[] = { mSrvDescriptorHeap.Get() };
+	mCommandList->SetDescriptorHeaps(_countof(mainHeaps), mainHeaps);
 
 	D3D12_RESOURCE_BARRIER presentBarrier = CD3DX12_RESOURCE_BARRIER::Transition(
 		CurrentBackBuffer(), D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
