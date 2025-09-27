@@ -1,4 +1,78 @@
-// Terrain.hlsl - ÿÂÈ‰Â˚ ‰Îˇ ÂÌ‰ÂËÌ„‡ terrain Ò heightmap
+// Terrain.hlsl - –®–µ–π–¥–µ—Ä—ã –¥–ª—è —Ä–µ–Ω–¥–µ—Ä–∏–Ω–≥–∞ terrain —Å heightmap
+// ------------------------------------------------------------------
+// –§–£–ù–ö–¶–ò–ò –ì–ï–ù–ï–†–ê–¶–ò–ò –®–£–ú–ê (PROCEDURAL NOISE FUNCTIONS)
+// ------------------------------------------------------------------
+
+// –§—É–Ω–∫—Ü–∏—è —Ö–µ—à–∏—Ä–æ–≤–∞–Ω–∏—è –¥–ª—è –ø–æ–ª—É—á–µ–Ω–∏—è –ø—Å–µ–≤–¥–æ—Å–ª—É—á–∞–π–Ω–æ–≥–æ –∑–Ω–∞—á–µ–Ω–∏—è
+// –Ω–∞ –æ—Å–Ω–æ–≤–µ 2D-–∫–æ–æ—Ä–¥–∏–Ω–∞—Ç.
+float hash2D(float2 p)
+{
+    // –ì–µ–Ω–µ—Ä–∞—Ü–∏—è —Å–ª—É—á–∞–π–Ω–æ–≥–æ, –Ω–æ –ø–æ–≤—Ç–æ—Ä—è—é—â–µ–≥–æ—Å—è –∑–Ω–∞—á–µ–Ω–∏—è
+    // —Å –∏—Å–ø–æ–ª—å–∑–æ–≤–∞–Ω–∏–µ–º sin –∏ dot product (–∏–∑–≤–µ—Å—Ç–Ω—ã–π –∞–ª–≥–æ—Ä–∏—Ç–º –¥–ª—è —à–µ–π–¥–µ—Ä–æ–≤).
+    float h = dot(p, float2(12.9898, 78.233));
+    return frac(sin(h) * 43758.5453123);
+}
+
+// –§—É–Ω–∫—Ü–∏—è –ø–ª–∞–≤–Ω–æ–≥–æ –∏–Ω—Ç–µ—Ä–ø–æ–ª–∏—Ä–æ–≤–∞–Ω–∏—è (quintic/smoothstep)
+// f(t) = 6t^5 - 15t^4 + 10t^3. –û–±–µ—Å–ø–µ—á–∏–≤–∞–µ—Ç C2-–Ω–µ–ø—Ä–µ—Ä—ã–≤–Ω–æ—Å—Ç—å.
+float2 fade(float2 t)
+{
+    return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+}
+
+// 2D Value Noise (–ø–æ—Ö–æ–∂ –Ω–∞ Perlin Noise)
+// –í–æ–∑–≤—Ä–∞—â–∞–µ—Ç –æ–¥–Ω–æ –∑–Ω–∞—á–µ–Ω–∏–µ —à—É–º–∞ –≤ –¥–∏–∞–ø–∞–∑–æ–Ω–µ [0, 1]
+float noise2D(float2 p)
+{
+    // 1. –ù–∞—Ö–æ–¥–∏–º –∫–æ–æ—Ä–¥–∏–Ω–∞—Ç—ã —Å–µ—Ç–∫–∏ (—è—á–µ–π–∫–∏)
+    float2 i = floor(p);
+    // 2. –ù–∞—Ö–æ–¥–∏–º –¥—Ä–æ–±–Ω—É—é —á–∞—Å—Ç—å (–ø–æ–∑–∏—Ü–∏—é –≤–Ω—É—Ç—Ä–∏ —è—á–µ–π–∫–∏)
+    float2 f = frac(p);
+
+    // 3. –í—ã—á–∏—Å–ª—è–µ–º 4 –ø—Å–µ–≤–¥–æ—Å–ª—É—á–∞–π–Ω—ã—Ö –∑–Ω–∞—á–µ–Ω–∏—è –¥–ª—è —É–≥–ª–æ–≤ —è—á–µ–π–∫–∏
+    float a = hash2D(i);
+    float b = hash2D(i + float2(1.0, 0.0));
+    float c = hash2D(i + float2(0.0, 1.0));
+    float d = hash2D(i + float2(1.0, 1.0));
+
+    // 4. –ü—Ä–∏–º–µ–Ω—è–µ–º —Ñ—É–Ω–∫—Ü–∏—é —Å–≥–ª–∞–∂–∏–≤–∞–Ω–∏—è (fade) –∫ –¥—Ä–æ–±–Ω–æ–π —á–∞—Å—Ç–∏
+    float2 u = fade(f);
+
+    // 5. –í—ã–ø–æ–ª–Ω—è–µ–º –±–∏–ª–∏–Ω–µ–π–Ω—É—é –∏–Ω—Ç–µ—Ä–ø–æ–ª—è—Ü–∏—é (lerp)
+    return lerp(
+        lerp(a, b, u.x), // –ò–Ω—Ç–µ—Ä–ø–æ–ª—è—Ü–∏—è –ø–æ X
+        lerp(c, d, u.x), // –ò–Ω—Ç–µ—Ä–ø–æ–ª—è—Ü–∏—è –ø–æ X
+        u.y              // –ò–Ω—Ç–µ—Ä–ø–æ–ª—è—Ü–∏—è –ø–æ Y
+    );
+}
+
+// –§—É–Ω–∫—Ü–∏—è FBM (Fractal Brownian Motion)
+// –û–±—ä–µ–¥–∏–Ω—è–µ—Ç –Ω–µ—Å–∫–æ–ª—å–∫–æ –æ–∫—Ç–∞–≤ —à—É–º–∞ –¥–ª—è –ø–æ–ª—É—á–µ–Ω–∏—è –¥–µ—Ç–∞–ª–∏–∑–∏—Ä–æ–≤–∞–Ω–Ω–æ–≥–æ —Ä–µ–∑—É–ª—å—Ç–∞—Ç–∞.
+float FBM_Noise(float2 p)
+{
+    // –ü–∞—Ä–∞–º–µ—Ç—Ä—ã FBM (–º–æ–∂–Ω–æ –≤—ã–Ω–µ—Å—Ç–∏ –≤ cbuffer –¥–ª—è –Ω–∞—Å—Ç—Ä–æ–π–∫–∏)
+    const int OCTAVES = 5; // –ö–æ–ª–∏—á–µ—Å—Ç–≤–æ –æ–∫—Ç–∞–≤ —à—É–º–∞
+    const float LACUNARITY = 2.0; // –§–∞–∫—Ç–æ—Ä —É–≤–µ–ª–∏—á–µ–Ω–∏—è —á–∞—Å—Ç–æ—Ç—ã (–æ–±—ã—á–Ω–æ 2.0)
+    const float PERSISTENCE = 0.5; // –§–∞–∫—Ç–æ—Ä —É–º–µ–Ω—å—à–µ–Ω–∏—è –∞–º–ø–ª–∏—Ç—É–¥—ã (–æ–±—ã—á–Ω–æ 0.5)
+
+    float total = 0.0;
+    float amplitude = 1.0;
+    float frequency = 1.0;
+    float maxValue = 0.0; // –î–ª—è –Ω–æ—Ä–º–∞–ª–∏–∑–∞—Ü–∏–∏
+
+    for (int i = 0; i < OCTAVES; i++)
+    {
+        total += noise2D(p * frequency) * amplitude;
+        maxValue += amplitude;
+
+        amplitude *= PERSISTENCE;
+        frequency *= LACUNARITY;
+    }
+
+    // –ù–æ—Ä–º–∞–ª–∏–∑–∞—Ü–∏—è —Ä–µ–∑—É–ª—å—Ç–∞—Ç–∞ –∫ –¥–∏–∞–ø–∞–∑–æ–Ω—É [0, 1]
+    return total / maxValue;
+}
+
 
 cbuffer cbPerObject : register(b0)
 {
@@ -32,7 +106,7 @@ cbuffer cbMaterial : register(b2)
     float gRoughness;
     float4x4 gMatTransform;
 };
-cbuffer cbTerrainTile : register(b3) // b1 - Â„ËÒÚ ‰Îˇ ·ÛÙÂ‡
+cbuffer cbTerrainTile : register(b3) // b1 - —Ä–µ–≥–∏—Å—Ç—Ä –¥–ª—è –±—É—Ñ–µ—Ä–∞
 {
     float3 gTilePosition;
     float gTileSize;
@@ -42,9 +116,9 @@ cbuffer cbTerrainTile : register(b3) // b1 - Â„ËÒÚ ‰Îˇ ·ÛÙÂ‡
     float debugMode;
 };
 // Texture resources
-Texture2D gHeightMap : register(t0); //  ‡Ú‡ ‚˚ÒÓÚ
-Texture2D gDiffuseMap : register(t1); // ƒËÙÙÛÁÌ‡ˇ ÚÂÍÒÚÛ‡
-Texture2D gNormalMap : register(t2); //  ‡Ú‡ ÌÓÏ‡ÎÂÈ
+Texture2D gHeightMap : register(t0); // –ö–∞—Ä—Ç–∞ –≤—ã—Å–æ—Ç
+Texture2D gDiffuseMap : register(t1); // –î–∏—Ñ—Ñ—É–∑–Ω–∞—è —Ç–µ–∫—Å—Ç—É—Ä–∞
+Texture2D gNormalMap : register(t2); // –ö–∞—Ä—Ç–∞ –Ω–æ—Ä–º–∞–ª–µ–π
 
 SamplerState gSamPointWrap : register(s0);
 SamplerState gSamPointClamp : register(s1);
@@ -69,83 +143,94 @@ struct VertexOut
     float3 TangentW : TANGENT;
     float2 TexC : TEXCOORD;
     float2 TexCl : TEXCOORD2;
+    float height : HEIGHT;
 };
 
 struct PixelOut
 {
-    float4 Albedo : SV_Target0; // ƒËÙÙÛÁÌ˚È ˆ‚ÂÚ
-    float4 Normal : SV_Target1; // ÕÓÏ‡ÎË ‚ ÏËÓ‚ÓÏ ÔÓÒÚ‡ÌÒÚ‚Â
-    float4 Position : SV_Target2; // œÓÁËˆËˇ ‚ ÏËÓ‚ÓÏ ÔÓÒÚ‡ÌÒÚ‚Â
+    float4 Albedo : SV_Target0; // –î–∏—Ñ—Ñ—É–∑–Ω—ã–π —Ü–≤–µ—Ç
+    float4 Normal : SV_Target1; // –ù–æ—Ä–º–∞–ª–∏ –≤ –º–∏—Ä–æ–≤–æ–º –ø—Ä–æ—Å—Ç—Ä–∞–Ω—Å—Ç–≤–µ
+    float4 Position : SV_Target2; // –ü–æ–∑–∏—Ü–∏—è –≤ –º–∏—Ä–æ–≤–æ–º –ø—Ä–æ—Å—Ç—Ä–∞–Ω—Å—Ç–≤–µ
 };
 
-//  ÓÌÒÚ‡ÌÚ˚ ‰Îˇ terrain
-static const float TEXTURE_REPEAT = 3.0f; // œÓ‚ÚÓÂÌËÂ ÚÂÍÒÚÛ˚ Ì‡ Ú‡ÈÎÂ
-static const float NORMAL_SAMPLE_OFFSET = 0.01f; // —ÏÂ˘ÂÌËÂ ‰Îˇ ‚˚˜ËÒÎÂÌËˇ ÌÓÏ‡ÎÂÈ
+// –ö–æ–Ω—Å—Ç–∞–Ω—Ç—ã –¥–ª—è terrain
+static const float TEXTURE_REPEAT = 3.0f; // –ü–æ–≤—Ç–æ—Ä–µ–Ω–∏–µ —Ç–µ–∫—Å—Ç—É—Ä—ã –Ω–∞ —Ç–∞–π–ª–µ
+static const float NORMAL_SAMPLE_OFFSET = 0.01f; // –°–º–µ—â–µ–Ω–∏–µ –¥–ª—è –≤—ã—á–∏—Å–ª–µ–Ω–∏—è –Ω–æ—Ä–º–∞–ª–µ–π
 
 VertexOut VS(VertexIn vin)
 {
     VertexOut vout = (VertexOut) 0.0f;
     
-    // ¬˚˜ËÒÎˇÂÏ ÚÂÍÒÚÛÌ˚Â ÍÓÓ‰ËÌ‡Ú˚
+    // –í—ã—á–∏—Å–ª—è–µ–º —Ç–µ–∫—Å—Ç—É—Ä–Ω—ã–µ –∫–æ–æ—Ä–¥–∏–Ω–∞—Ç—ã
     float4 texC = mul(float4(vin.TexC, 0.0f, 1.0f), gTexTransform);
     vout.TexC = mul(texC, gMatTransform).xy;
     float coeff = gTileSize / mapSize;
     vout.TexC *= coeff;
     vout.TexC += gTilePosition.xz / mapSize;
     vout.TexCl = vin.TexC;
-    // —ÂÏÔÎËÛÂÏ ‚˚ÒÓÚÛ ËÁ heightmap
-    float height = gHeightMap.SampleLevel(gSamLinearClamp, vout.TexC, 0).r;
     
-    // œËÏÂÌˇÂÏ ‚˚ÒÓÚÛ Í Y ÍÓÓ‰ËÌ‡ÚÂ
+    //const float terrainScale = 0.01;
+    //float height = FBM_Noise(vout.TexC * 8.0 * terrainScale);
+    
+    
+    
+    
+    const float terrainScale = 0.01;
+    float height = FBM_Noise(vout.TexC * 8.0);
+    // –°–µ–º–ø–ª–∏—Ä—É–µ–º –≤—ã—Å–æ—Ç—É –∏–∑ heightmap
+    //float height = gHeightMap.SampleLevel(gSamLinearClamp, vout.TexC, 0).r;
+    vout.height = height;
+    
+    // –ü—Ä–∏–º–µ–Ω—è–µ–º –≤—ã—Å–æ—Ç—É –∫ Y –∫–æ–æ—Ä–¥–∏–Ω–∞—Ç–µ
     float3 posL = vin.PosL;
     posL.y = posL.y + height * heightScale;
     
-    // “‡ÌÒÙÓÏËÛÂÏ ‚ ÏËÓ‚˚Â ÍÓÓ‰ËÌ‡Ú˚
+    // –¢—Ä–∞–Ω—Å—Ñ–æ—Ä–º–∏—Ä—É–µ–º –≤ –º–∏—Ä–æ–≤—ã–µ –∫–æ–æ—Ä–¥–∏–Ω–∞—Ç—ã
     float4 posW = mul(float4(posL, 1.0f), gWorld);
     vout.PosW = posW.xyz;
     
-    // »—œ–¿¬À≈ÕÕŒ≈ ‚˚˜ËÒÎÂÌËÂ ÌÓÏ‡ÎË
+    // –ò–°–ü–†–ê–í–õ–ï–ù–ù–û–ï –≤—ã—á–∏—Å–ª–µ–Ω–∏–µ –Ω–æ—Ä–º–∞–ª–∏
     float2 texelSize = float2(1.0f / mapSize, 1.0f / mapSize);
     
-    // —ÂÏÔÎËÛÂÏ ‚˚ÒÓÚ˚ ÒÓÒÂ‰ÌËı ÚÓ˜ÂÍ
+    // –°–µ–º–ø–ª–∏—Ä—É–µ–º –≤—ã—Å–æ—Ç—ã —Å–æ—Å–µ–¥–Ω–∏—Ö —Ç–æ—á–µ–∫
     float hL = gHeightMap.SampleLevel(gSamLinearClamp, vout.TexC + float2(-texelSize.x, 0.0f), 0).r;
     float hR = gHeightMap.SampleLevel(gSamLinearClamp, vout.TexC + float2(texelSize.x, 0.0f), 0).r;
     float hD = gHeightMap.SampleLevel(gSamLinearClamp, vout.TexC + float2(0.0f, -texelSize.y), 0).r;
     float hU = gHeightMap.SampleLevel(gSamLinearClamp, vout.TexC + float2(0.0f, texelSize.y), 0).r;
     
-    // ¬˚˜ËÒÎˇÂÏ „‡‰ËÂÌÚ˚
-    float dX = (hR - hL) * heightScale ; // „‡‰ËÂÌÚ ÔÓ X
-    float dZ = (hU - hD) * heightScale ; // „‡‰ËÂÌÚ ÔÓ Z
+    // –í—ã—á–∏—Å–ª—è–µ–º –≥—Ä–∞–¥–∏–µ–Ω—Ç—ã
+    float dX = (hR - hL) * heightScale ; // –≥—Ä–∞–¥–∏–µ–Ω—Ç –ø–æ X
+    float dZ = (hU - hD) * heightScale ; // –≥—Ä–∞–¥–∏–µ–Ω—Ç –ø–æ Z
     
-    // —ÓÁ‰‡ÂÏ ÌÓÏ‡Î¸ Ì‡ÔˇÏÛ˛ ËÁ „‡‰ËÂÌÚÓ‚
-    // ‘ÓÏÛÎ‡: normal = normalize((-dX, 1, -dZ))
+    // –°–æ–∑–¥–∞–µ–º –Ω–æ—Ä–º–∞–ª—å –Ω–∞–ø—Ä—è–º—É—é –∏–∑ –≥—Ä–∞–¥–∏–µ–Ω—Ç–æ–≤
+    // –§–æ—Ä–º—É–ª–∞: normal = normalize((-dX, 1, -dZ))
     float3 normal = normalize(float3(-dX, 1.0f, -dZ));
     
-    // —ÓÁ‰‡ÂÏ Ú‡Ì„ÂÌÚ
+    // –°–æ–∑–¥–∞–µ–º —Ç–∞–Ω–≥–µ–Ω—Ç
     float3 tangent = normalize(float3(1.0f, dX, 0.0f));
     
-    // “‡ÌÒÙÓÏËÛÂÏ ‚ ÏËÓ‚ÓÂ ÔÓÒÚ‡ÌÒÚ‚Ó
+    // –¢—Ä–∞–Ω—Å—Ñ–æ—Ä–º–∏—Ä—É–µ–º –≤ –º–∏—Ä–æ–≤–æ–µ –ø—Ä–æ—Å—Ç—Ä–∞–Ω—Å—Ç–≤–æ
     vout.NormalW = normalize(mul(normal, (float3x3) gWorld));
     vout.TangentW = normalize(mul(tangent, (float3x3) gWorld));
     
-    // “‡ÌÒÙÓÏËÛÂÏ ‚ clip space
+    // –¢—Ä–∞–Ω—Å—Ñ–æ—Ä–º–∏—Ä—É–µ–º –≤ clip space
     vout.PosH = mul(posW, gViewProj);
     
     return vout;
 }
 float3 NormalSampleToWorldSpace(float3 normalMapSample, float3 unitNormalW, float3 tangentW)
 {
-    // –‡ÒÔ‡ÍÓ‚˚‚‡ÂÏ ÌÓÏ‡Î¸ ËÁ [0,1] ‚ [-1,1]
+    // –†–∞—Å–ø–∞–∫–æ–≤—ã–≤–∞–µ–º –Ω–æ—Ä–º–∞–ª—å –∏–∑ [0,1] –≤ [-1,1]
     float3 normalT = 2.0f * normalMapSample - 1.0f;
     
-    // —ÚÓËÏ TBN Ï‡ÚËˆÛ
+    // –°—Ç—Ä–æ–∏–º TBN –º–∞—Ç—Ä–∏—Ü—É
     float3 N = unitNormalW;
     float3 T = normalize(tangentW - dot(tangentW, N) * N);
     float3 B = cross(N, T);
     
     float3x3 TBN = float3x3(T, B, N);
     
-    // “‡ÌÒÙÓÏËÛÂÏ ÌÓÏ‡Î¸ ‚ ÏËÓ‚ÓÂ ÔÓÒÚ‡ÌÒÚ‚Ó
+    // –¢—Ä–∞–Ω—Å—Ñ–æ—Ä–º–∏—Ä—É–µ–º –Ω–æ—Ä–º–∞–ª—å –≤ –º–∏—Ä–æ–≤–æ–µ –ø—Ä–æ—Å—Ç—Ä–∞–Ω—Å—Ç–≤–æ
     float3 bumpedNormalW = mul(normalT, TBN);
     
     return bumpedNormalW;
@@ -155,10 +240,10 @@ PixelOut PS(VertexOut pin) : SV_Target
 {
     PixelOut pout;
     
-    // —ÂÏÔÎËÛÂÏ ‰ËÙÙÛÁÌÛ˛ ÚÂÍÒÚÛÛ
+    // –°–µ–º–ø–ª–∏—Ä—É–µ–º –¥–∏—Ñ—Ñ—É–∑–Ω—É—é —Ç–µ–∫—Å—Ç—É—Ä—É
     float4 diffuseAlbedo = gDiffuseMap.Sample(gSamAnisotropicWrap, pin.TexC);
     
-    // œËÏÂÌˇÂÏ Ï‡ÚÂË‡Î¸Ì˚È ˆ‚ÂÚ
+    // –ü—Ä–∏–º–µ–Ω—è–µ–º –º–∞—Ç–µ—Ä–∏–∞–ª—å–Ω—ã–π —Ü–≤–µ—Ç
     diffuseAlbedo *= gDiffuseAlbedo;
     
     // debug
@@ -190,20 +275,21 @@ PixelOut PS(VertexOut pin) : SV_Target
    
     
     
-    // —ÂÏÔÎËÛÂÏ Í‡ÚÛ ÌÓÏ‡ÎÂÈ
+    // –°–µ–º–ø–ª–∏—Ä—É–µ–º –∫–∞—Ä—Ç—É –Ω–æ—Ä–º–∞–ª–µ–π
         float3 normalMapSample = gNormalMap.Sample(gSamAnisotropicWrap, pin.TexC).rgb;
     
-    // ÕÓÏ‡ÎËÁÛÂÏ ËÌÚÂÔÓÎËÓ‚‡ÌÌ˚Â ÌÓÏ‡ÎË Ë Ú‡Ì„ÂÌÚ˚
+    // –ù–æ—Ä–º–∞–ª–∏–∑—É–µ–º –∏–Ω—Ç–µ—Ä–ø–æ–ª–∏—Ä–æ–≤–∞–Ω–Ω—ã–µ –Ω–æ—Ä–º–∞–ª–∏ –∏ —Ç–∞–Ω–≥–µ–Ω—Ç—ã
     pin.NormalW = normalize(pin.NormalW);
     pin.TangentW = normalize(pin.TangentW);
     
-    // ¬˚˜ËÒÎˇÂÏ ÙËÌ‡Î¸ÌÛ˛ ÌÓÏ‡Î¸ Ò Û˜ÂÚÓÏ normal map
+    // –í—ã—á–∏—Å–ª—è–µ–º —Ñ–∏–Ω–∞–ª—å–Ω—É—é –Ω–æ—Ä–º–∞–ª—å —Å —É—á–µ—Ç–æ–º normal map
     float3 bumpedNormalW = NormalSampleToWorldSpace(normalMapSample, pin.NormalW, pin.TangentW);
     
-    // ¬˚‚Ó‰ËÏ ‚ G-Buffer
+    // –í—ã–≤–æ–¥–∏–º –≤ G-Buffer
     
-    
-    pout.Albedo = diffuseAlbedo;
+    float2 p = pin.TexC * 8.0f;
+    float height = FBM_Noise(p);
+    pout.Albedo = float4(height.xxx, 1.0f);
     pout.Normal = float4(bumpedNormalW, gRoughness);
     pout.Position = float4(pin.PosW, 1.0f);
     

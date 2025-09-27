@@ -73,10 +73,10 @@ void CGLAB::MoveUpDown(float step) {
 
 bool CGLAB::Initialize()
 {
-	// Создаем консольное окно.
+	// РЎРѕР·РґР°РµРј РєРѕРЅСЃРѕР»СЊРЅРѕРµ РѕРєРЅРѕ.
 	AllocConsole();
 
-	// Перенаправляем стандартные потоки.
+	// РџРµСЂРµРЅР°РїСЂР°РІР»СЏРµРј СЃС‚Р°РЅРґР°СЂС‚РЅС‹Рµ РїРѕС‚РѕРєРё.
 	freopen("CONIN$", "r", stdin);
 	freopen("CONOUT$", "w", stdout);
 	freopen("CONOUT$", "w", stderr);
@@ -332,7 +332,7 @@ void CGLAB::Update(const GameTimer& gt)
 		CloseHandle(eventHandle);
 	}
 	UpdateCamera(gt);
-	// Обновляем terrain систему
+	// РћР±РЅРѕРІР»СЏРµРј terrain СЃРёСЃС‚РµРјСѓ
 	UpdateTerrain(gt);
 	// === ImGui Setup ===
 	RenderIMGUI();
@@ -640,14 +640,14 @@ void CGLAB::UpdateMainPassCB(const GameTimer& gt)
 
 void CGLAB::CreateGBuffer()
 {
-	// Форматы
+	// Р¤РѕСЂРјР°С‚С‹
 	const DXGI_FORMAT positionFormat = DXGI_FORMAT_R32G32B32A32_FLOAT;
 	const DXGI_FORMAT normalFormat = DXGI_FORMAT_R16G16B16A16_FLOAT;
 	const DXGI_FORMAT albedoFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
 	FlushCommandQueue();
 
 	ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
-	// Описание ресурса
+	// РћРїРёСЃР°РЅРёРµ СЂРµСЃСѓСЂСЃР°
 	D3D12_RESOURCE_DESC texDesc = {};
 	texDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
 	texDesc.Alignment = 0;
@@ -663,7 +663,7 @@ void CGLAB::CreateGBuffer()
 	mGBufferPosition.Reset();
 	mGBufferNormal.Reset();
 	mGBufferAlbedo.Reset();
-	// Создание ресурсов --------------------------------------------------------
+	// РЎРѕР·РґР°РЅРёРµ СЂРµСЃСѓСЂСЃРѕРІ --------------------------------------------------------
 	// Position
 	texDesc.Format = positionFormat;
 	ThrowIfFailed(md3dDevice->CreateCommittedResource(
@@ -694,10 +694,10 @@ void CGLAB::CreateGBuffer()
 		&CD3DX12_CLEAR_VALUE(albedoFormat, Colors::Black),
 		IID_PPV_ARGS(&mGBufferAlbedo)));
 
-	// Создание RTV -------------------------------------------------------------
+	// РЎРѕР·РґР°РЅРёРµ RTV -------------------------------------------------------------
 	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(
 		mRtvHeap->GetCPUDescriptorHandleForHeapStart(),
-		SwapChainBufferCount, // Начинаем после SwapChain
+		SwapChainBufferCount, // РќР°С‡РёРЅР°РµРј РїРѕСЃР»Рµ SwapChain
 		mRtvDescriptorSize
 	);
 
@@ -767,10 +767,10 @@ void CGLAB::LoadTexture(const std::string& name)
 void CGLAB::BuildRootSignature()
 {
 	CD3DX12_DESCRIPTOR_RANGE diffuseRange;
-	diffuseRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0); // Диффузная текстура в регистре t0
+	diffuseRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0); // Р”РёС„С„СѓР·РЅР°СЏ С‚РµРєСЃС‚СѓСЂР° РІ СЂРµРіРёСЃС‚СЂРµ t0
 
 	CD3DX12_DESCRIPTOR_RANGE normalRange;
-	normalRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1);  // Нормальная карта в регистре t1
+	normalRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1);  // РќРѕСЂРјР°Р»СЊРЅР°СЏ РєР°СЂС‚Р° РІ СЂРµРіРёСЃС‚СЂРµ t1
 
     // Root parameter can be a table, root descriptor or root constants.
     CD3DX12_ROOT_PARAMETER slotRootParameter[5];
@@ -812,13 +812,13 @@ void CGLAB::BuildRootSignature()
 void CGLAB::BuildTerrainRootSignature()
 {
 	CD3DX12_DESCRIPTOR_RANGE heightRange;
-	heightRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0); // Диффузная текстура в регистре t0
+	heightRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0); // Р”РёС„С„СѓР·РЅР°СЏ С‚РµРєСЃС‚СѓСЂР° РІ СЂРµРіРёСЃС‚СЂРµ t0
 
 	CD3DX12_DESCRIPTOR_RANGE diffuseRange;
-	diffuseRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1); // Диффузная текстура в регистре t0
+	diffuseRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1); // Р”РёС„С„СѓР·РЅР°СЏ С‚РµРєСЃС‚СѓСЂР° РІ СЂРµРіРёСЃС‚СЂРµ t0
 
 	CD3DX12_DESCRIPTOR_RANGE normalRange;
-	normalRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2);  // Нормальная карта в регистре t1
+	normalRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2);  // РќРѕСЂРјР°Р»СЊРЅР°СЏ РєР°СЂС‚Р° РІ СЂРµРіРёСЃС‚СЂРµ t1
 
 	// Root parameter can be a table, root descriptor or root constants.
 	CD3DX12_ROOT_PARAMETER slotRootParameter[7];
@@ -1117,7 +1117,7 @@ void CGLAB::BuildDescriptorHeaps()
 	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvDescriptorHeap)));
 
 
-	// Создание SRV -------------------------------------------------------------
+	// РЎРѕР·РґР°РЅРёРµ SRV -------------------------------------------------------------
 
 	//
 	// Fill out the heap with actual descriptors.
@@ -1216,12 +1216,12 @@ void CGLAB::BuildShadersAndInputLayout()
 }
 void CGLAB::BuildCustomMeshGeometry(std::string name, UINT& meshVertexOffset, UINT& meshIndexOffset, UINT& prevVertSize, UINT& prevIndSize, std::vector<Vertex>& vertices, std::vector<std::uint16_t>& indices, MeshGeometry* Geo)
 {
-	std::vector<GeometryGenerator::MeshData> meshDatas; // Это твоя структура для хранения вершин и индексов
+	std::vector<GeometryGenerator::MeshData> meshDatas; // Р­С‚Рѕ С‚РІРѕСЏ СЃС‚СЂСѓРєС‚СѓСЂР° РґР»СЏ С…СЂР°РЅРµРЅРёСЏ РІРµСЂС€РёРЅ Рё РёРЅРґРµРєСЃРѕРІ
 
-	// Создаем инстанс импортера.
+	// РЎРѕР·РґР°РµРј РёРЅСЃС‚Р°РЅСЃ РёРјРїРѕСЂС‚РµСЂР°.
 	Assimp::Importer importer;
 
-	// Читаем файл с постпроцессингом: триангуляция, флип UV (если нужно) и генерация нормалей.
+	// Р§РёС‚Р°РµРј С„Р°Р№Р» СЃ РїРѕСЃС‚РїСЂРѕС†РµСЃСЃРёРЅРіРѕРј: С‚СЂРёР°РЅРіСѓР»СЏС†РёСЏ, С„Р»РёРї UV (РµСЃР»Рё РЅСѓР¶РЅРѕ) Рё РіРµРЅРµСЂР°С†РёСЏ РЅРѕСЂРјР°Р»РµР№.
 	const aiScene* scene = importer.ReadFile("../Common/models/" + name + ".obj",
 		aiProcess_Triangulate |
 		aiProcess_ConvertToLeftHanded |
@@ -1240,11 +1240,11 @@ void CGLAB::BuildCustomMeshGeometry(std::string name, UINT& meshVertexOffset, UI
 		GeometryGenerator::MeshData meshData;
 		aiMesh* mesh = scene->mMeshes[i];
 
-		// Подготовка контейнеров для вершин и индексов.
+		// РџРѕРґРіРѕС‚РѕРІРєР° РєРѕРЅС‚РµР№РЅРµСЂРѕРІ РґР»СЏ РІРµСЂС€РёРЅ Рё РёРЅРґРµРєСЃРѕРІ.
 		std::vector<GeometryGenerator::Vertex> vertices;
 		std::vector<std::uint16_t> indices;
 
-		// Проходим по всем вершинам и копируем данные.
+		// РџСЂРѕС…РѕРґРёРј РїРѕ РІСЃРµРј РІРµСЂС€РёРЅР°Рј Рё РєРѕРїРёСЂСѓРµРј РґР°РЅРЅС‹Рµ.
 		for (unsigned int i = 0; i < mesh->mNumVertices; ++i)
 		{
 			GeometryGenerator::Vertex v;
@@ -1277,21 +1277,21 @@ void CGLAB::BuildCustomMeshGeometry(std::string name, UINT& meshVertexOffset, UI
 
 			}
 
-			// Если необходимо, можно обработать тангенты и другие атрибуты.
+			// Р•СЃР»Рё РЅРµРѕР±С…РѕРґРёРјРѕ, РјРѕР¶РЅРѕ РѕР±СЂР°Р±РѕС‚Р°С‚СЊ С‚Р°РЅРіРµРЅС‚С‹ Рё РґСЂСѓРіРёРµ Р°С‚СЂРёР±СѓС‚С‹.
 			vertices.push_back(v);
 		}
-		// Проходим по всем граням для формирования индексов.
+		// РџСЂРѕС…РѕРґРёРј РїРѕ РІСЃРµРј РіСЂР°РЅСЏРј РґР»СЏ С„РѕСЂРјРёСЂРѕРІР°РЅРёСЏ РёРЅРґРµРєСЃРѕРІ.
 		for (unsigned int i = 0; i < mesh->mNumFaces; ++i)
 		{
 			aiFace face = mesh->mFaces[i];
-			// Убедимся, что грань треугольная.
+			// РЈР±РµРґРёРјСЃСЏ, С‡С‚Рѕ РіСЂР°РЅСЊ С‚СЂРµСѓРіРѕР»СЊРЅР°СЏ.
 			if (face.mNumIndices != 3) continue;
 			indices.push_back(static_cast<std::uint16_t>(face.mIndices[0]));
 			indices.push_back(static_cast<std::uint16_t>(face.mIndices[1]));
 			indices.push_back(static_cast<std::uint16_t>(face.mIndices[2]));
 		}
 
-		// Заполняем meshData. Здесь тебе нужно адаптировать под свою структуру:
+		// Р—Р°РїРѕР»РЅСЏРµРј meshData. Р—РґРµСЃСЊ С‚РµР±Рµ РЅСѓР¶РЅРѕ Р°РґР°РїС‚РёСЂРѕРІР°С‚СЊ РїРѕРґ СЃРІРѕСЋ СЃС‚СЂСѓРєС‚СѓСЂСѓ:
 		meshData.Vertices = vertices;
 		meshData.Indices32.resize(indices.size());
 		for (size_t j = 0; j < indices.size(); ++j)
@@ -1303,7 +1303,7 @@ void CGLAB::BuildCustomMeshGeometry(std::string name, UINT& meshVertexOffset, UI
 		aiString texPath;
 
 		meshData.matName = scene->mMaterials[mesh->mMaterialIndex]->GetName().C_Str();
-		// Если требуется, можно выполнить дополнительные операции, например, нормализацию, вычисление тангенсов и т.д.
+		// Р•СЃР»Рё С‚СЂРµР±СѓРµС‚СЃСЏ, РјРѕР¶РЅРѕ РІС‹РїРѕР»РЅРёС‚СЊ РґРѕРїРѕР»РЅРёС‚РµР»СЊРЅС‹Рµ РѕРїРµСЂР°С†РёРё, РЅР°РїСЂРёРјРµСЂ, РЅРѕСЂРјР°Р»РёР·Р°С†РёСЋ, РІС‹С‡РёСЃР»РµРЅРёРµ С‚Р°РЅРіРµРЅСЃРѕРІ Рё С‚.Рґ.
 		meshDatas.push_back(meshData);
 	}
 	for (unsigned int k = 0;k < scene->mNumMaterials;k++)
@@ -1519,34 +1519,34 @@ void CGLAB::BuildPSOs()
 
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC gbPsoDesc = {};
 	gbPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
-	gbPsoDesc.pRootSignature = mRootSignature.Get(); // используем модифицированную корневую сигнатуру
+	gbPsoDesc.pRootSignature = mRootSignature.Get(); // РёСЃРїРѕР»СЊР·СѓРµРј РјРѕРґРёС„РёС†РёСЂРѕРІР°РЅРЅСѓСЋ РєРѕСЂРЅРµРІСѓСЋ СЃРёРіРЅР°С‚СѓСЂСѓ
 	gbPsoDesc.VS = { reinterpret_cast<BYTE*>(mShaders["gbufferVS"]->GetBufferPointer()),
 					 mShaders["gbufferVS"]->GetBufferSize() };
 	gbPsoDesc.PS = { reinterpret_cast<BYTE*>(mShaders["gbufferPS"]->GetBufferPointer()),
 					 mShaders["gbufferPS"]->GetBufferSize() };
 	gbPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
 	gbPsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-	// Отключаем прозрачность (или настраиваем, если нужны)
+	// РћС‚РєР»СЋС‡Р°РµРј РїСЂРѕР·СЂР°С‡РЅРѕСЃС‚СЊ (РёР»Рё РЅР°СЃС‚СЂР°РёРІР°РµРј, РµСЃР»Рё РЅСѓР¶РЅС‹)
 	gbPsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
 	gbPsoDesc.SampleMask = UINT_MAX;
 	gbPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
 
-	// Теперь указываем несколько рендер-таргетов (G-Buffer)
+	// РўРµРїРµСЂСЊ СѓРєР°Р·С‹РІР°РµРј РЅРµСЃРєРѕР»СЊРєРѕ СЂРµРЅРґРµСЂ-С‚Р°СЂРіРµС‚РѕРІ (G-Buffer)
 	gbPsoDesc.NumRenderTargets = 3;
-	gbPsoDesc.RTVFormats[0] = albedoFormat;     // альбедо
-	gbPsoDesc.RTVFormats[1] = normalFormat; // нормали
-	gbPsoDesc.RTVFormats[2] = positionFormat; // позиция
+	gbPsoDesc.RTVFormats[0] = albedoFormat;     // Р°Р»СЊР±РµРґРѕ
+	gbPsoDesc.RTVFormats[1] = normalFormat; // РЅРѕСЂРјР°Р»Рё
+	gbPsoDesc.RTVFormats[2] = positionFormat; // РїРѕР·РёС†РёСЏ
 	gbPsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
 	gbPsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
-	gbPsoDesc.DSVFormat = mDepthStencilFormat; // з-дефолтовый формат глубины (может быть D32_FLOAT)
+	gbPsoDesc.DSVFormat = mDepthStencilFormat; // Р·-РґРµС„РѕР»С‚РѕРІС‹Р№ С„РѕСЂРјР°С‚ РіР»СѓР±РёРЅС‹ (РјРѕР¶РµС‚ Р±С‹С‚СЊ D32_FLOAT)
 
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&gbPsoDesc, IID_PPV_ARGS(&mPSOs["gbuffer"])));
 
 	// Lighting pass PSO
 
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC lightPsoDesc = {};
-	lightPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() }; // если используем SV_VertexID в шейдере, входного layout не нужно
-	lightPsoDesc.pRootSignature = mLightingRootSignature.Get(); // наша новая корнев. сигнатура для освещения
+	lightPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() }; // РµСЃР»Рё РёСЃРїРѕР»СЊР·СѓРµРј SV_VertexID РІ С€РµР№РґРµСЂРµ, РІС…РѕРґРЅРѕРіРѕ layout РЅРµ РЅСѓР¶РЅРѕ
+	lightPsoDesc.pRootSignature = mLightingRootSignature.Get(); // РЅР°С€Р° РЅРѕРІР°СЏ РєРѕСЂРЅРµРІ. СЃРёРіРЅР°С‚СѓСЂР° РґР»СЏ РѕСЃРІРµС‰РµРЅРёСЏ
 	lightPsoDesc.VS = { reinterpret_cast<BYTE*>(mShaders["lightingVS"]->GetBufferPointer()),
 						mShaders["lightingVS"]->GetBufferSize() };
 	lightPsoDesc.PS = { reinterpret_cast<BYTE*>(mShaders["lightingPS"]->GetBufferPointer()),
@@ -1572,15 +1572,15 @@ void CGLAB::BuildPSOs()
 	lightPsoDesc.BlendState = blendDesc;
 	lightPsoDesc.SampleMask = UINT_MAX;
 	lightPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-	lightPsoDesc.NumRenderTargets = 1;                   // выводим один финальный цвет
-	lightPsoDesc.RTVFormats[0] = mBackBufferFormat;      // формат экрана (обычно DXGI_FORMAT_R8G8B8A8_UNORM)
+	lightPsoDesc.NumRenderTargets = 1;                   // РІС‹РІРѕРґРёРј РѕРґРёРЅ С„РёРЅР°Р»СЊРЅС‹Р№ С†РІРµС‚
+	lightPsoDesc.RTVFormats[0] = mBackBufferFormat;      // С„РѕСЂРјР°С‚ СЌРєСЂР°РЅР° (РѕР±С‹С‡РЅРѕ DXGI_FORMAT_R8G8B8A8_UNORM)
 	lightPsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
 	lightPsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
-	lightPsoDesc.DSVFormat = mDepthStencilFormat; // не используем буфер глубины
+	lightPsoDesc.DSVFormat = mDepthStencilFormat; // РЅРµ РёСЃРїРѕР»СЊР·СѓРµРј Р±СѓС„РµСЂ РіР»СѓР±РёРЅС‹
 
 	//D3D12_DEPTH_STENCIL_DESC dsDesc = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
 	//dsDesc.DepthEnable = TRUE;
-	//dsDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO; // можно отключить запись, но оставить тест
+	//dsDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO; // РјРѕР¶РЅРѕ РѕС‚РєР»СЋС‡РёС‚СЊ Р·Р°РїРёСЃСЊ, РЅРѕ РѕСЃС‚Р°РІРёС‚СЊ С‚РµСЃС‚
 	//dsDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
 	//lightPsoDesc.DepthStencilState = dsDesc;
 
@@ -1599,7 +1599,7 @@ void CGLAB::BuildPSOs()
 	lightShapesPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
 	D3D12_DEPTH_STENCIL_DESC dsDesc = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
 	dsDesc.DepthEnable = TRUE;
-	dsDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO; // можно отключить запись, но оставить тест
+	dsDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO; // РјРѕР¶РЅРѕ РѕС‚РєР»СЋС‡РёС‚СЊ Р·Р°РїРёСЃСЊ, РЅРѕ РѕСЃС‚Р°РІРёС‚СЊ С‚РµСЃС‚
 	dsDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
 	lightShapesPsoDesc.DepthStencilState = dsDesc;
 	lightShapesPsoDesc.PS = { reinterpret_cast<BYTE*>(mShaders["lightingPSDebug"]->GetBufferPointer()),
@@ -1768,7 +1768,7 @@ void CGLAB::BuildRenderItems()
 	RenderCustomMesh("eyeR", "right", "eye", XMFLOAT3(3, 3, 3), XMFLOAT3(0, 3.14, 0), XMFLOAT3(-0.6, 3.87, 1.1));
 	*/
 	std::vector<std::shared_ptr<TerrainTile>>& allTiles = m_terrainSystem->GetAllTiles();
-	// Теперь, для каждого видимого тайла, создаем или обновляем его RenderItem.
+	// РўРµРїРµСЂСЊ, РґР»СЏ РєР°Р¶РґРѕРіРѕ РІРёРґРёРјРѕРіРѕ С‚Р°Р№Р»Р°, СЃРѕР·РґР°РµРј РёР»Рё РѕР±РЅРѕРІР»СЏРµРј РµРіРѕ RenderItem.
 	int a = 0;
 	for (auto& tile : allTiles)
 	{
@@ -1779,7 +1779,7 @@ void CGLAB::BuildRenderItems()
 		renderItem->Mat = mMaterials["terrainMat"].get(); 
 		renderItem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 		renderItem->Name = "TILE";
-		// Выбираем LOD-уровень в зависимости от глубины узла квадродерева.
+		// Р’С‹Р±РёСЂР°РµРј LOD-СѓСЂРѕРІРµРЅСЊ РІ Р·Р°РІРёСЃРёРјРѕСЃС‚Рё РѕС‚ РіР»СѓР±РёРЅС‹ СѓР·Р»Р° РєРІР°РґСЂРѕРґРµСЂРµРІР°.
 		int lodIndex = tile->lodLevel;
 		std::string lodName = "tile_" + std::to_string(tile->tileIndex) + "_LOD_" + std::to_string(lodIndex);
 		renderItem->Geo = mGeometries["terrainGeo"].get();
@@ -1787,7 +1787,7 @@ void CGLAB::BuildRenderItems()
 		renderItem->StartIndexLocation = renderItem->Geo->DrawArgs[lodName].StartIndexLocation;
 		renderItem->BaseVertexLocation = renderItem->Geo->DrawArgs[lodName].BaseVertexLocation;
 
-		// Обновляем мировую трансформацию тайла
+		// РћР±РЅРѕРІР»СЏРµРј РјРёСЂРѕРІСѓСЋ С‚СЂР°РЅСЃС„РѕСЂРјР°С†РёСЋ С‚Р°Р№Р»Р°
 		XMMATRIX translation = XMMatrixTranslation(tile->worldPos.x, tile->worldPos.y, tile->worldPos.z);
 		XMStoreFloat4x4(&renderItem->World, translation);
 
@@ -1914,23 +1914,23 @@ void CGLAB::DeferredDraw(const GameTimer& gt)
 	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
 		D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
 
-	// Обнуляем буферы G-Buffer
-	// Очищаем каждый G-Buffer и глубину
-	// Стало:
+	// РћР±РЅСѓР»СЏРµРј Р±СѓС„РµСЂС‹ G-Buffer
+	// РћС‡РёС‰Р°РµРј РєР°Р¶РґС‹Р№ G-Buffer Рё РіР»СѓР±РёРЅСѓ
+	// РЎС‚Р°Р»Рѕ:
 	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHs[] = {
 	CD3DX12_CPU_DESCRIPTOR_HANDLE(
 		mRtvHeap->GetCPUDescriptorHandleForHeapStart(),
-		SwapChainBufferCount, // Начинаем после SwapChain
+		SwapChainBufferCount, // РќР°С‡РёРЅР°РµРј РїРѕСЃР»Рµ SwapChain
 		mRtvDescriptorSize
 	),
 	CD3DX12_CPU_DESCRIPTOR_HANDLE(
 		mRtvHeap->GetCPUDescriptorHandleForHeapStart(),
-		SwapChainBufferCount + 1, // Начинаем после SwapChain
+		SwapChainBufferCount + 1, // РќР°С‡РёРЅР°РµРј РїРѕСЃР»Рµ SwapChain
 		mRtvDescriptorSize
 	),
 	CD3DX12_CPU_DESCRIPTOR_HANDLE(
 		mRtvHeap->GetCPUDescriptorHandleForHeapStart(),
-		SwapChainBufferCount + 2, // Начинаем после SwapChain
+		SwapChainBufferCount + 2, // РќР°С‡РёРЅР°РµРј РїРѕСЃР»Рµ SwapChain
 		mRtvDescriptorSize
 	) };
 	XMFLOAT4 c(mLights[0].Color.x, mLights[0].Color.y, mLights[0].Color.z, 1);
@@ -1942,7 +1942,7 @@ void CGLAB::DeferredDraw(const GameTimer& gt)
 	mCommandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 	mCommandList->OMSetRenderTargets(3, rtvHs, true, &DepthStencilView());
 
-	ID3D12DescriptorHeap* heaps[] = { mSrvDescriptorHeap.Get() /*для текстур*/ };
+	ID3D12DescriptorHeap* heaps[] = { mSrvDescriptorHeap.Get() /*РґР»СЏ С‚РµРєСЃС‚СѓСЂ*/ };
 	mCommandList->SetDescriptorHeaps(_countof(heaps), heaps);
 	mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
 
@@ -1954,7 +1954,7 @@ void CGLAB::DeferredDraw(const GameTimer& gt)
 	// ===============RENDERING TERRAIN=====================
 	if (!m_visibleTerrainTiles.empty())
 	{
-		// Переключаемся на terrain PSO
+		// РџРµСЂРµРєР»СЋС‡Р°РµРјСЃСЏ РЅР° terrain PSO
 		if (m_terrainSystem->wireframe)
 			mCommandList->SetPipelineState(mPSOs["terrainWIRE"].Get());
 		else
@@ -2056,7 +2056,7 @@ void CGLAB::DeferredDraw(const GameTimer& gt)
 
 
 
-	// Устанавливаем heap ImGui перед отрисовкой
+	// РЈСЃС‚Р°РЅР°РІР»РёРІР°РµРј heap ImGui РїРµСЂРµРґ РѕС‚СЂРёСЃРѕРІРєРѕР№
 	ID3D12DescriptorHeap* imguiheaps[] = { m_ImGuiSrvDescriptorHeap.Get() };
 	mCommandList->SetDescriptorHeaps(_countof(imguiheaps), imguiheaps);
 	ImGui::Render();

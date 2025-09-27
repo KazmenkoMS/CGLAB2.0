@@ -94,11 +94,11 @@ VertexOut VS(VertexIn vin)
     return vout;
 }
 
-// PSOutput с несколькими буферами
+// PSOutput СЃ РЅРµСЃРєРѕР»СЊРєРёРјРё Р±СѓС„РµСЂР°РјРё
 struct PSOutput
 {
     float4 Albedo : SV_Target0; // Diffuse color
-    float4 Normal : SV_Target1; // Normal.xyz, alpha можно задать =1
+    float4 Normal : SV_Target1; // Normal.xyz, alpha РјРѕР¶РЅРѕ Р·Р°РґР°С‚СЊ =1
     float4 Position : SV_Target2; // Position.xyz, alpha=1
 };
 
@@ -123,20 +123,20 @@ float3 NormalSampleToWorldSpace(float3 normalMapSample, float3 unitNormalW, floa
 PSOutput PS(VertexOut pin)
 {
     PSOutput outt;
-    // Сэмплим диффузную текстуру
+    // РЎСЌРјРїР»РёРј РґРёС„С„СѓР·РЅСѓСЋ С‚РµРєСЃС‚СѓСЂСѓ
     float4 diffuseTex = gDiffuseMap.Sample(gsamAnisotropicWrap, pin.TexC);
-    outt.Albedo = diffuseTex * gDiffuseAlbedo; // альбедо (RGB), альфа можем взять из diffuseAlbedo.a
+    outt.Albedo = diffuseTex * gDiffuseAlbedo; // Р°Р»СЊР±РµРґРѕ (RGB), Р°Р»СЊС„Р° РјРѕР¶РµРј РІР·СЏС‚СЊ РёР· diffuseAlbedo.a
 
-    // Обрабатываем нормаль: из карты или вершинная
+    // РћР±СЂР°Р±Р°С‚С‹РІР°РµРј РЅРѕСЂРјР°Р»СЊ: РёР· РєР°СЂС‚С‹ РёР»Рё РІРµСЂС€РёРЅРЅР°СЏ
     float3 normalW;
-    // Сэмплируем карту нормалей в неликвидном пространстве (0..1 -> -1..1)
+    // РЎСЌРјРїР»РёСЂСѓРµРј РєР°СЂС‚Сѓ РЅРѕСЂРјР°Р»РµР№ РІ РЅРµР»РёРєРІРёРґРЅРѕРј РїСЂРѕСЃС‚СЂР°РЅСЃС‚РІРµ (0..1 -> -1..1)
     float3 normalSample = gNormalMap.Sample(gsamAnisotropicWrap, pin.TexC).xyz;
     pin.NormalW = normalize(pin.NormalW);
     normalW = NormalSampleToWorldSpace(normalSample.rgb, pin.NormalW, pin.Tan);;
 
     outt.Normal = float4(normalW, 1.0f);
 
-    // Позиция в мировых координатах
+    // РџРѕР·РёС†РёСЏ РІ РјРёСЂРѕРІС‹С… РєРѕРѕСЂРґРёРЅР°С‚Р°С…
     outt.Position = float4(pin.PosW, 1.0f);
 
     

@@ -51,7 +51,7 @@ cbuffer cbLight : register(b2)
 {
     Light light;
 }
-// Вершинный шейдер для полноэкранного треугольника
+// Р’РµСЂС€РёРЅРЅС‹Р№ С€РµР№РґРµСЂ РґР»СЏ РїРѕР»РЅРѕСЌРєСЂР°РЅРЅРѕРіРѕ С‚СЂРµСѓРіРѕР»СЊРЅРёРєР°
 struct VSOut
 {
     float4 PosH : SV_POSITION;
@@ -62,7 +62,7 @@ VSOut VS_QUAD(uint vid : SV_VertexID)
 {
     VSOut output;
     
-    // Координаты вершин полноэкранного треугольника
+    // РљРѕРѕСЂРґРёРЅР°С‚С‹ РІРµСЂС€РёРЅ РїРѕР»РЅРѕСЌРєСЂР°РЅРЅРѕРіРѕ С‚СЂРµСѓРіРѕР»СЊРЅРёРєР°
     float2 positions[3] =
     {
         float2(-1, -1),
@@ -102,13 +102,13 @@ VSOut VS(VertexIn vin)
     return vout;
 }
 
-// Пиксельный шейдер освещения
+// РџРёРєСЃРµР»СЊРЅС‹Р№ С€РµР№РґРµСЂ РѕСЃРІРµС‰РµРЅРёСЏ
 float4 PS(VSOut pin) : SV_TARGET
 {
     float2 texelSize = 1.0f / float2(2048, 2048); // Pass these as constants
     
     int2 pix = int2(pin.PosH.xy);
-    // Вычитываем G-Buffer
+    // Р’С‹С‡РёС‚С‹РІР°РµРј G-Buffer
     float4 albedo = gAlbedoMap.Load(int3(pix, 0));
     float3 normalW = normalize(gNormalMap.Load(int3(pix, 0)).xyz);
     float3 posW = gPositionMap.Load(int3(pix, 0)).xyz;

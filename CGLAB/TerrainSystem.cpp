@@ -1,6 +1,6 @@
 #include "TerrainSystem.h"
 #include "CGLAB.h"
-// Реализация методов terrain системы
+// Р РµР°Р»РёР·Р°С†РёСЏ РјРµС‚РѕРґРѕРІ terrain СЃРёСЃС‚РµРјС‹
 
 
 bool QuadTreeNode::ShouldSplit(const XMFLOAT3& cameraPos, float heightscale,int mapsize) const
@@ -19,26 +19,26 @@ bool QuadTreeNode::ShouldSplit(const XMFLOAT3& cameraPos, float heightscale,int 
     return false;
 }
 
-// 4. Обновление видимости в квадродереве
+// 4. РћР±РЅРѕРІР»РµРЅРёРµ РІРёРґРёРјРѕСЃС‚Рё РІ РєРІР°РґСЂРѕРґРµСЂРµРІРµ
 void QuadTreeNode::UpdateVisibility(BoundingFrustum& frustum, const XMFLOAT3& cameraPos, std::vector<TerrainTile*>& visibleTiles,float heightscale, int mapsize)
 {
     if (frustum.Contains(boundingBox) == DISJOINT)
     {
-        return; // Узел полностью не виден
+        return; // РЈР·РµР» РїРѕР»РЅРѕСЃС‚СЊСЋ РЅРµ РІРёРґРµРЅ
     }
 
-    // Если узел является "листом" (нет дочерних узлов) или не нужно его разбивать
+    // Р•СЃР»Рё СѓР·РµР» СЏРІР»СЏРµС‚СЃСЏ "Р»РёСЃС‚РѕРј" (РЅРµС‚ РґРѕС‡РµСЂРЅРёС… СѓР·Р»РѕРІ) РёР»Рё РЅРµ РЅСѓР¶РЅРѕ РµРіРѕ СЂР°Р·Р±РёРІР°С‚СЊ
     if (!children[0] || !ShouldSplit(cameraPos, heightscale, mapsize))
     {
-        // Рендерим текущий узел (тайл)
+        // Р РµРЅРґРµСЂРёРј С‚РµРєСѓС‰РёР№ СѓР·РµР» (С‚Р°Р№Р»)
         if (tile)
         {
             visibleTiles.push_back(tile);
         }
     }
-    else // Если нужно разбивать
+    else // Р•СЃР»Рё РЅСѓР¶РЅРѕ СЂР°Р·Р±РёРІР°С‚СЊ
     {
-        // Рекурсивно обновляем видимость дочерних узлов
+        // Р РµРєСѓСЂСЃРёРІРЅРѕ РѕР±РЅРѕРІР»СЏРµРј РІРёРґРёРјРѕСЃС‚СЊ РґРѕС‡РµСЂРЅРёС… СѓР·Р»РѕРІ
         for (int i = 0; i < 4; i++)
         {
             if (children[i])
@@ -49,19 +49,19 @@ void QuadTreeNode::UpdateVisibility(BoundingFrustum& frustum, const XMFLOAT3& ca
     }
 }
 
-// 5. Инициализация terrain системы
+// 5. РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ terrain СЃРёСЃС‚РµРјС‹
 void TerrainSystem::Initialize(ID3D12Device* device, int HeightMapIndex,
     float worldSize, int maxLOD)
 {
     m_worldSize = worldSize;
     m_maxLOD = maxLOD;
-    m_heightScale = 50.0f; // настраиваемый параметр
+    m_heightScale = 50.0f; // РЅР°СЃС‚СЂР°РёРІР°РµРјС‹Р№ РїР°СЂР°РјРµС‚СЂ
     m_hmapIndex = HeightMapIndex;
-    // Создаем корневой узел квадродерева
+    // РЎРѕР·РґР°РµРј РєРѕСЂРЅРµРІРѕР№ СѓР·РµР» РєРІР°РґСЂРѕРґРµСЂРµРІР°
     m_rootNode = std::make_unique<QuadTreeNode>();
     m_rootNode->depth = 0;
 
-    // Строим квадродерево рекурсивно
+    // РЎС‚СЂРѕРёРј РєРІР°РґСЂРѕРґРµСЂРµРІРѕ СЂРµРєСѓСЂСЃРёРІРЅРѕ
     int initialSize = (int)worldSize; // 2^maxLOD
     BuildQuadTree(m_rootNode.get(), 0, 0, initialSize, 0);
 }
@@ -69,11 +69,11 @@ void TerrainSystem::Initialize(ID3D12Device* device, int HeightMapIndex,
 void TerrainSystem::BuildQuadTree(QuadTreeNode* node, int x, int y, int size, int depth)
 {
     node->depth = depth;
-    // Вычисляем мировые координаты узла
+    // Р’С‹С‡РёСЃР»СЏРµРј РјРёСЂРѕРІС‹Рµ РєРѕРѕСЂРґРёРЅР°С‚С‹ СѓР·Р»Р°
     float tileSize = m_worldSize / (1 << depth);
 
-    // Вычисляем AABB для этого узла.
-    // Пока что упрощенно, без учета хайтмапы
+    // Р’С‹С‡РёСЃР»СЏРµРј AABB РґР»СЏ СЌС‚РѕРіРѕ СѓР·Р»Р°.
+    // РџРѕРєР° С‡С‚Рѕ СѓРїСЂРѕС‰РµРЅРЅРѕ, Р±РµР· СѓС‡РµС‚Р° С…Р°Р№С‚РјР°РїС‹
     node->boundingBox = CalculateTileAABB(XMFLOAT3((float)x, 0, (float)y), tileSize, -10.0f, 400.0f);
    
     auto tile = std::make_unique<TerrainTile>();
@@ -84,8 +84,8 @@ void TerrainSystem::BuildQuadTree(QuadTreeNode* node, int x, int y, int size, in
     tile->boundingBox = node->boundingBox;
     tile->tileIndex = tileIndex++;
     m_allTiles.push_back(std::move(tile));
-    node->tile = m_allTiles.back().get(); // Указываем на созданный тайл
-    // Если мы достигли максимальной глубины, создаем тайл.
+    node->tile = m_allTiles.back().get(); // РЈРєР°Р·С‹РІР°РµРј РЅР° СЃРѕР·РґР°РЅРЅС‹Р№ С‚Р°Р№Р»
+    // Р•СЃР»Рё РјС‹ РґРѕСЃС‚РёРіР»Рё РјР°РєСЃРёРјР°Р»СЊРЅРѕР№ РіР»СѓР±РёРЅС‹, СЃРѕР·РґР°РµРј С‚Р°Р№Р».
     if (depth != m_maxLOD)
     {
         int halfSize = size / 2;
@@ -138,9 +138,9 @@ void CGLAB::GenerateTileGeometry(const XMFLOAT3& worldPos, float tileSize, int l
     indices.clear();
 
     float stepSize = tileSize / (resolution - 1);
-    float skirtDepth = 10; // Уменьшил глубину юбки
+    float skirtDepth = 10; // РЈРјРµРЅСЊС€РёР» РіР»СѓР±РёРЅСѓ СЋР±РєРё
 
-    // 1. Генерируем основные вершины тайла (как раньше)
+    // 1. Р“РµРЅРµСЂРёСЂСѓРµРј РѕСЃРЅРѕРІРЅС‹Рµ РІРµСЂС€РёРЅС‹ С‚Р°Р№Р»Р° (РєР°Рє СЂР°РЅСЊС€Рµ)
     for (int z = 0; z < resolution; z++)
     {
         for (int x = 0; x < resolution; x++)
@@ -156,16 +156,16 @@ void CGLAB::GenerateTileGeometry(const XMFLOAT3& worldPos, float tileSize, int l
 
     int mainVertexCount = static_cast<int>(vertices.size());
 
-    // 2. Создаем вершины юбки (дублируем периметр и смещаем вниз)
-    // Левая сторона (x = 0)
+    // 2. РЎРѕР·РґР°РµРј РІРµСЂС€РёРЅС‹ СЋР±РєРё (РґСѓР±Р»РёСЂСѓРµРј РїРµСЂРёРјРµС‚СЂ Рё СЃРјРµС‰Р°РµРј РІРЅРёР·)
+    // Р›РµРІР°СЏ СЃС‚РѕСЂРѕРЅР° (x = 0)
     for (int z = 0; z < resolution; z++)
     {
-        Vertex vertex = vertices[z * resolution + 0]; // копируем существующую вершину
-        vertex.Pos.y = -skirtDepth; // смещаем вниз
+        Vertex vertex = vertices[z * resolution + 0]; // РєРѕРїРёСЂСѓРµРј СЃСѓС‰РµСЃС‚РІСѓСЋС‰СѓСЋ РІРµСЂС€РёРЅСѓ
+        vertex.Pos.y = -skirtDepth; // СЃРјРµС‰Р°РµРј РІРЅРёР·
         vertices.push_back(vertex);
     }
 
-    // Правая сторона (x = resolution-1)  
+    // РџСЂР°РІР°СЏ СЃС‚РѕСЂРѕРЅР° (x = resolution-1)  
     for (int z = 0; z < resolution; z++)
     {
         Vertex vertex = vertices[z * resolution + (resolution - 1)];
@@ -173,7 +173,7 @@ void CGLAB::GenerateTileGeometry(const XMFLOAT3& worldPos, float tileSize, int l
         vertices.push_back(vertex);
     }
 
-    // Нижняя сторона (z = 0), исключаем углы
+    // РќРёР¶РЅСЏСЏ СЃС‚РѕСЂРѕРЅР° (z = 0), РёСЃРєР»СЋС‡Р°РµРј СѓРіР»С‹
     for (int x = 1; x < resolution - 1; x++)
     {
         Vertex vertex = vertices[0 * resolution + x];
@@ -181,7 +181,7 @@ void CGLAB::GenerateTileGeometry(const XMFLOAT3& worldPos, float tileSize, int l
         vertices.push_back(vertex);
     }
 
-    // Верхняя сторона (z = resolution-1), исключаем углы
+    // Р’РµСЂС…РЅСЏСЏ СЃС‚РѕСЂРѕРЅР° (z = resolution-1), РёСЃРєР»СЋС‡Р°РµРј СѓРіР»С‹
     for (int x = 1; x < resolution - 1; x++)
     {
         Vertex vertex = vertices[(resolution - 1) * resolution + x];
@@ -189,7 +189,7 @@ void CGLAB::GenerateTileGeometry(const XMFLOAT3& worldPos, float tileSize, int l
         vertices.push_back(vertex);
     }
 
-    // 3. Генерируем индексы для основного тайла
+    // 3. Р“РµРЅРµСЂРёСЂСѓРµРј РёРЅРґРµРєСЃС‹ РґР»СЏ РѕСЃРЅРѕРІРЅРѕРіРѕ С‚Р°Р№Р»Р°
     for (int z = 0; z < resolution - 1; z++)
     {
         for (int x = 0; x < resolution - 1; x++)
@@ -209,13 +209,13 @@ void CGLAB::GenerateTileGeometry(const XMFLOAT3& worldPos, float tileSize, int l
         }
     }
 
-    // 4. Индексы для юбки - простая версия
+    // 4. РРЅРґРµРєСЃС‹ РґР»СЏ СЋР±РєРё - РїСЂРѕСЃС‚Р°СЏ РІРµСЂСЃРёСЏ
     int leftSkirtStart = mainVertexCount;
     int rightSkirtStart = leftSkirtStart + resolution;
     int bottomSkirtStart = rightSkirtStart + resolution;
     int topSkirtStart = bottomSkirtStart + (resolution - 2);
 
-    // Левая юбка
+    // Р›РµРІР°СЏ СЋР±РєР°
     for (int z = 0; z < resolution - 1; z++)
     {
         UINT edge1 = z * resolution;
@@ -232,7 +232,7 @@ void CGLAB::GenerateTileGeometry(const XMFLOAT3& worldPos, float tileSize, int l
         indices.push_back(skirt2);
     }
 
-    // Правая юбка  
+    // РџСЂР°РІР°СЏ СЋР±РєР°  
     for (int z = 0; z < resolution - 1; z++)
     {
         UINT edge1 = z * resolution + (resolution - 1);
@@ -249,7 +249,7 @@ void CGLAB::GenerateTileGeometry(const XMFLOAT3& worldPos, float tileSize, int l
         indices.push_back(skirt1);
     }
 
-    // Нижняя юбка
+    // РќРёР¶РЅСЏСЏ СЋР±РєР°
     for (int x = 1; x < resolution - 2; x++)
     {
         UINT edge1 = x;
@@ -266,7 +266,7 @@ void CGLAB::GenerateTileGeometry(const XMFLOAT3& worldPos, float tileSize, int l
         indices.push_back(skirt1);
     }
 
-    // Верхняя юбка
+    // Р’РµСЂС…РЅСЏСЏ СЋР±РєР°
     for (int x = 1; x < resolution - 2; x++)
     {
         UINT edge1 = (resolution - 1) * resolution + x;
@@ -289,10 +289,10 @@ void CGLAB::BuildTerrainGeometry()
     auto terrainGeo = std::make_unique<MeshGeometry>();
     terrainGeo->Name = "terrainGeo";
 
-    // Получаем тайлы из terrain системы
+    // РџРѕР»СѓС‡Р°РµРј С‚Р°Р№Р»С‹ РёР· terrain СЃРёСЃС‚РµРјС‹
     auto& allTiles = m_terrainSystem->GetAllTiles();
 
-    // Создаем один большой массив вершин для всех тайлов
+    // РЎРѕР·РґР°РµРј РѕРґРёРЅ Р±РѕР»СЊС€РѕР№ РјР°СЃСЃРёРІ РІРµСЂС€РёРЅ РґР»СЏ РІСЃРµС… С‚Р°Р№Р»РѕРІ
     std::vector<Vertex> allVertices;
     std::vector<std::uint32_t> allIndices;
 
@@ -305,14 +305,14 @@ void CGLAB::BuildTerrainGeometry()
 
         GenerateTileGeometry(tile->worldPos, tile->tileSize, tile->lodLevel, tileVertices, tileIndices);
 
-        // Смещаем индексы на количество уже добавленных вершин
+        // РЎРјРµС‰Р°РµРј РёРЅРґРµРєСЃС‹ РЅР° РєРѕР»РёС‡РµСЃС‚РІРѕ СѓР¶Рµ РґРѕР±Р°РІР»РµРЅРЅС‹С… РІРµСЂС€РёРЅ
         UINT baseVertex = static_cast<int>(allVertices.size());
         for (auto& index : tileIndices)
         {
             index += baseVertex;
         }
 
-        // Сохраняем submesh
+        // РЎРѕС…СЂР°РЅСЏРµРј submesh
         SubmeshGeometry submesh;
         submesh.IndexCount = (UINT)tileIndices.size();
         submesh.StartIndexLocation = (UINT)allIndices.size();
@@ -321,13 +321,13 @@ void CGLAB::BuildTerrainGeometry()
         std::string submeshName = "tile_" + std::to_string(tileIdx) + "_LOD_" + std::to_string(tile->lodLevel);
         terrainGeo->DrawArgs[submeshName] = submesh;
 
-        // Добавляем в общие массивы
+        // Р”РѕР±Р°РІР»СЏРµРј РІ РѕР±С‰РёРµ РјР°СЃСЃРёРІС‹
         allVertices.insert(allVertices.end(), tileVertices.begin(), tileVertices.end());
         allIndices.insert(allIndices.end(), tileIndices.begin(), tileIndices.end());
         
     }
 
-    // 3. Создание GPU-буферов (остаётся как было)
+    // 3. РЎРѕР·РґР°РЅРёРµ GPU-Р±СѓС„РµСЂРѕРІ (РѕСЃС‚Р°С‘С‚СЃСЏ РєР°Рє Р±С‹Р»Рѕ)
     const UINT vbByteSize = (UINT)allVertices.size() * sizeof(Vertex);
     const UINT ibByteSize = (UINT)allIndices.size() * sizeof(std::uint32_t);
 
@@ -360,17 +360,17 @@ void CGLAB::UpdateTerrain(const GameTimer& gt)
     if (!m_terrainSystem)
         return;
 
-    // Обновляем позицию камеры
+    // РћР±РЅРѕРІР»СЏРµРј РїРѕР·РёС†РёСЋ РєР°РјРµСЂС‹
     XMVECTOR camPos = cam.GetPosition();
     XMFLOAT3 cameraPosition;
     XMStoreFloat3(&cameraPosition, camPos);
 
-    // Извлекаем плоскости frustum
+    // РР·РІР»РµРєР°РµРј РїР»РѕСЃРєРѕСЃС‚Рё frustum
     XMMATRIX view = XMLoadFloat4x4(&mView);
     XMMATRIX proj = XMLoadFloat4x4(&mProj);
     XMMATRIX viewProj = XMMatrixMultiply(view, proj);
 
-    // Обновляем terrain систему. Это заполняет m_visibleTiles
+    // РћР±РЅРѕРІР»СЏРµРј terrain СЃРёСЃС‚РµРјСѓ. Р­С‚Рѕ Р·Р°РїРѕР»РЅСЏРµС‚ m_visibleTiles
     m_terrainSystem->Update(cameraPosition, cam.GetFrustum());
     m_terrainSystem->m_heightScale = heightScale;
 
