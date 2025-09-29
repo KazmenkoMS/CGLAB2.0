@@ -177,6 +177,7 @@
       <PreprocessorDefinitions Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">_CRT_SECURE_NO_WARNINGS;%(PreprocessorDefinitions)</PreprocessorDefinitions>
     </ClCompile>
     <ClCompile Include="FrameResource.cpp" />
+    <ClCompile Include="NoiseGeneration.cpp" />
     <ClCompile Include="TerrainSystem.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -199,6 +200,7 @@
     <ClInclude Include="..\Common\UploadBuffer.h" />
     <ClInclude Include="CGLAB.h" />
     <ClInclude Include="FrameResource.h" />
+    <ClInclude Include="NoiseGeneration.h" />
     <ClInclude Include="RenderItem.h" />
     <ClInclude Include="Settings.h" />
     <ClInclude Include="TerrainSystem.h" />

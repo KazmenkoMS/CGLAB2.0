@@ -63,6 +63,9 @@
     <ClCompile Include="TerrainSystem.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="NoiseGeneration.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="..\Common\d3dApp.h">
@@ -129,6 +132,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="RenderItem.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="NoiseGeneration.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

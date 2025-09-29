@@ -9,8 +9,7 @@
 #include <iostream>
 #include "RenderItem.h"
 #include "TerrainSystem.h"
-#include "WICTextureLoader.h"
-#include <ResourceUploadBatch.h> // Необходим для загрузки в D3D12
+#include "NoiseGeneration.h"
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 using namespace DirectX::PackedVector;
@@ -163,6 +162,7 @@ private:
 	XMFLOAT4 m_frustumPlanes[6];  // Плоскости frustum'a
 	std::vector<TerrainTile*> m_visibleTerrainTiles;
 	float heightScale = 100;
+	ComPtr<ID3D12Resource> m_generatedHeightMap;
 	// Методы
 	void GenerateTileGeometry(const XMFLOAT3& worldPos, float tileSize, int lodLevel, std::vector<Vertex>& vertices, std::vector<std::uint32_t>& indices);
 	void BuildTerrainGeometry();
@@ -171,3 +171,9 @@ private:
 	Camera cam;
 
 };
+
+ComPtr<ID3D12Resource> GenerateNoiseTexture(ID3D12Device* device,
+	ID3D12GraphicsCommandList* cmdList,
+	int width,
+	int height,
+	ComPtr<ID3D12Resource>& uploadBuffer);

@@ -65,6 +65,7 @@ struct TerrainTileConstants
     float hScale;
     float showborders = 1;
     float debugMode = 1;
+    float renderHMAP = 0;
 };
 // Stores the resources needed for the CPU to build the command lists
 // for a frame.  

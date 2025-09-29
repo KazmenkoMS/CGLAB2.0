@@ -1,77 +1,3 @@
-// Terrain.hlsl - Шейдеры для рендеринга terrain с heightmap
-// ------------------------------------------------------------------
-// ФУНКЦИИ ГЕНЕРАЦИИ ШУМА (PROCEDURAL NOISE FUNCTIONS)
-// ------------------------------------------------------------------
-
-// Функция хеширования для получения псевдослучайного значения
-// на основе 2D-координат.
-float hash2D(float2 p)
-{
-    // Генерация случайного, но повторяющегося значения
-    // с использованием sin и dot product (известный алгоритм для шейдеров).
-    float h = dot(p, float2(12.9898, 78.233));
-    return frac(sin(h) * 43758.5453123);
-}
-
-// Функция плавного интерполирования (quintic/smoothstep)
-// f(t) = 6t^5 - 15t^4 + 10t^3. Обеспечивает C2-непрерывность.
-float2 fade(float2 t)
-{
-    return t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
-}
-
-// 2D Value Noise (похож на Perlin Noise)
-// Возвращает одно значение шума в диапазоне [0, 1]
-float noise2D(float2 p)
-{
-    // 1. Находим координаты сетки (ячейки)
-    float2 i = floor(p);
-    // 2. Находим дробную часть (позицию внутри ячейки)
-    float2 f = frac(p);
-
-    // 3. Вычисляем 4 псевдослучайных значения для углов ячейки
-    float a = hash2D(i);
-    float b = hash2D(i + float2(1.0, 0.0));
-    float c = hash2D(i + float2(0.0, 1.0));
-    float d = hash2D(i + float2(1.0, 1.0));
-
-    // 4. Применяем функцию сглаживания (fade) к дробной части
-    float2 u = fade(f);
-
-    // 5. Выполняем билинейную интерполяцию (lerp)
-    return lerp(
-        lerp(a, b, u.x), // Интерполяция по X
-        lerp(c, d, u.x), // Интерполяция по X
-        u.y              // Интерполяция по Y
-    );
-}
-
-// Функция FBM (Fractal Brownian Motion)
-// Объединяет несколько октав шума для получения детализированного результата.
-float FBM_Noise(float2 p)
-{
-    // Параметры FBM (можно вынести в cbuffer для настройки)
-    const int OCTAVES = 5; // Количество октав шума
-    const float LACUNARITY = 2.0; // Фактор увеличения частоты (обычно 2.0)
-    const float PERSISTENCE = 0.5; // Фактор уменьшения амплитуды (обычно 0.5)
-
-    float total = 0.0;
-    float amplitude = 1.0;
-    float frequency = 1.0;
-    float maxValue = 0.0; // Для нормализации
-
-    for (int i = 0; i < OCTAVES; i++)
-    {
-        total += noise2D(p * frequency) * amplitude;
-        maxValue += amplitude;
-
-        amplitude *= PERSISTENCE;
-        frequency *= LACUNARITY;
-    }
-
-    // Нормализация результата к диапазону [0, 1]
-    return total / maxValue;
-}
 
 
 cbuffer cbPerObject : register(b0)
@@ -114,6 +40,7 @@ cbuffer cbTerrainTile : register(b3) // b1 - регистр для буфера
     float heightScale;
     float showborders;
     float debugMode;
+    float renderHMAP;
 };
 // Texture resources
 Texture2D gHeightMap : register(t0); // Карта высот
@@ -175,10 +102,8 @@ VertexOut VS(VertexIn vin)
     
     
     
-    const float terrainScale = 0.01;
-    float height = FBM_Noise(vout.TexC * 8.0);
     // Семплируем высоту из heightmap
-    //float height = gHeightMap.SampleLevel(gSamLinearClamp, vout.TexC, 0).r;
+    float height = gHeightMap.SampleLevel(gSamLinearClamp, vout.TexC, 0).r;
     vout.height = height;
     
     // Применяем высоту к Y координате
@@ -286,10 +211,10 @@ PixelOut PS(VertexOut pin) : SV_Target
     float3 bumpedNormalW = NormalSampleToWorldSpace(normalMapSample, pin.NormalW, pin.TangentW);
     
     // Выводим в G-Buffer
-    
-    float2 p = pin.TexC * 8.0f;
-    float height = FBM_Noise(p);
-    pout.Albedo = float4(height.xxx, 1.0f);
+    if (renderHMAP)
+        pout.Albedo = gHeightMap.Sample(gSamAnisotropicWrap, pin.TexC).rgba;
+    else
+        pout.Albedo = diffuseAlbedo;
     pout.Normal = float4(bumpedNormalW, gRoughness);
     pout.Position = float4(pin.PosW, 1.0f);
     

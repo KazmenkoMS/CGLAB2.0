@@ -107,7 +107,7 @@ bool CGLAB::Initialize()
 	BuildShadowMapViews();
 	BuildDescriptorHeaps();
 	m_terrainSystem = std::make_unique<TerrainSystem>();
-	m_terrainSystem->Initialize(md3dDevice.Get(), TexOffsets["textures/terrain_height"],
+	m_terrainSystem->Initialize(md3dDevice.Get(), TexOffsets["GeneratedHeightMap"],
 		1024, 6);
     BuildShapeGeometry();
 	SetLightShapes();
@@ -294,6 +294,7 @@ void CGLAB::RenderIMGUI()
 				ImGui::SliderInt("Tile Index", &m_terrainSystem->tileRenderIndex,0,(int)m_terrainSystem->GetAllTiles().size());
 				ImGui::Checkbox("Colors Debug", &m_terrainSystem->colordebug);
 				ImGui::Checkbox("Show borders", &m_terrainSystem->showborders);
+				ImGui::Checkbox("Render heighmap", &m_terrainSystem->renderHMAP);
 
 			}
 			ImGui::EndTabItem();
@@ -511,6 +512,7 @@ void CGLAB::UpdateTerrainCBs(const GameTimer& gt)
 		tileConstants.hScale = heightScale;
 		tileConstants.debugMode = m_terrainSystem->colordebug;
 		tileConstants.showborders = m_terrainSystem->showborders;
+		tileConstants.renderHMAP = m_terrainSystem->renderHMAP;
 		currTileCB->CopyData(t->tileIndex, tileConstants);
 		
 		t->NumFramesDirty--;
@@ -748,6 +750,13 @@ void CGLAB::LoadAllTextures()
 			LoadTexture(filepath);
 		}
 	}
+
+
+	auto tex = std::make_unique<Texture>();
+	tex->Name = "GeneratedHeightMap";
+	tex->Resource = GenerateNoiseTexture(md3dDevice.Get(), mCommandList.Get(), 1024, 1024, tex->UploadHeap);
+	mTextures[tex->Name] = std::move(tex);
+	
 }
 
 void CGLAB::LoadTexture(const std::string& name)
@@ -2232,3 +2241,83 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> CGLAB::GetStaticSamplers()
 	};
 }
 
+ComPtr<ID3D12Resource> GenerateNoiseTexture(ID3D12Device* device,
+	ID3D12GraphicsCommandList* cmdList,
+	int width,
+	int height,
+	ComPtr<ID3D12Resource>& uploadBuffer)
+{
+	// Создаем данные для текстуры - RGBA32_FLOAT (4 float на пиксель)
+	std::vector<float> textureData(width * height * 4);
+
+	// Заполняем все пиксели значением (1,1,1,1)
+	for (int i = 0; i < width * height * 4; i += 4)
+	{
+		int pixelIndex = i / 4;
+
+		// Получаем координаты x и y
+		int x = pixelIndex % width;
+		int y = pixelIndex / width;
+		float u = (float)x / width * 8;
+		float v = (float)y / height * 8;
+		float noise = FBM_Noise(XMFLOAT2(u, v));
+		textureData[i + 0] = noise; // R
+		textureData[i + 1] = noise; // G
+		textureData[i + 2] = noise; // B
+		textureData[i + 3] = 1; // A
+	}
+
+	// Описание текстуры
+	D3D12_RESOURCE_DESC textureDesc = {};
+	textureDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+	textureDesc.Alignment = 0;
+	textureDesc.Width = width;
+	textureDesc.Height = height;
+	textureDesc.DepthOrArraySize = 1;
+	textureDesc.MipLevels = 1;
+	textureDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+	textureDesc.SampleDesc.Count = 1;
+	textureDesc.SampleDesc.Quality = 0;
+	textureDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+	textureDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
+
+	// Создаем текстурный ресурс
+	ComPtr<ID3D12Resource> texture;
+	ThrowIfFailed(device->CreateCommittedResource(
+		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
+		D3D12_HEAP_FLAG_NONE,
+		&textureDesc,
+		D3D12_RESOURCE_STATE_COPY_DEST,
+		nullptr,
+		IID_PPV_ARGS(&texture)));
+
+	// Вычисляем размер upload buffer
+	UINT64 uploadBufferSize = GetRequiredIntermediateSize(texture.Get(), 0, 1);
+
+	// Создаем upload buffer
+	ThrowIfFailed(device->CreateCommittedResource(
+		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
+		D3D12_HEAP_FLAG_NONE,
+		&CD3DX12_RESOURCE_DESC::Buffer(uploadBufferSize),
+		D3D12_RESOURCE_STATE_GENERIC_READ,
+		nullptr,
+		IID_PPV_ARGS(&uploadBuffer)));
+
+	// Подготавливаем данные для загрузки
+	D3D12_SUBRESOURCE_DATA textureDataDesc = {};
+	textureDataDesc.pData = textureData.data();
+	textureDataDesc.RowPitch = width * 4 * sizeof(float); // 4 float на пиксель
+	textureDataDesc.SlicePitch = textureDataDesc.RowPitch * height;
+
+	// Загружаем данные
+	UpdateSubresources(cmdList, texture.Get(), uploadBuffer.Get(),
+		0, 0, 1, &textureDataDesc);
+
+	// Переводим в состояние для чтения
+	cmdList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
+		texture.Get(),
+		D3D12_RESOURCE_STATE_COPY_DEST,
+		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
+
+	return texture;
+}

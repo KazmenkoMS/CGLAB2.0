@@ -61,6 +61,7 @@ public:
 	bool wireframe = false;
 	bool dynamicLOD = true;
 	bool renderOneTile = false;
+	bool renderHMAP = false;
 private:
 	std::unique_ptr<QuadTreeNode> m_rootNode;
 	ComPtr<ID3D12Resource> m_heightmapTexture;
@@ -71,3 +72,4 @@ private:
 	void BuildQuadTree(QuadTreeNode* node, int x, int y, int size, int depth);
 	BoundingBox CalculateTileAABB(const XMFLOAT3& pos, float size, float minHeight, float maxHeight);
 };
+
