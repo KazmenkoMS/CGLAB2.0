@@ -107,7 +107,7 @@ bool CGLAB::Initialize()
 	BuildShadowMapViews();
 	BuildDescriptorHeaps();
 	m_terrainSystem = std::make_unique<TerrainSystem>();
-	m_terrainSystem->Initialize(md3dDevice.Get(), TexOffsets["GeneratedHeightMap"],
+	m_terrainSystem->Initialize(md3dDevice.Get(), TexOffsets["textures/terrain_height"],"textures/terrain_height",
 		1024, 6);
     BuildShapeGeometry();
 	SetLightShapes();
@@ -284,17 +284,46 @@ void CGLAB::UpdateIMGUI()
 			if (m_terrainSystem)
 			{
 				ImGui::Text("Visible Terrain Tiles: %d", (int)m_visibleTerrainTiles.size());
-				ImGui::DragFloat("Height Scale", &heightScale,1.0f, 1.0f, 40000.0f);
+				ImGui::DragFloat("Height Scale", &heightScale, 1.0f, 1.0f, 40000.0f);
 				ImGui::SliderInt("LodLevel", &m_terrainSystem->renderlodlevel, 0, 6);
 				ImGui::Checkbox("Wireframe", &m_terrainSystem->wireframe);
 				ImGui::Checkbox("DynamicLOD", &m_terrainSystem->dynamicLOD);
 				ImGui::Separator();
 				ImGui::Text("Debug");
 				ImGui::Checkbox("Render One Tile", &m_terrainSystem->renderOneTile);
-				ImGui::SliderInt("Tile Index", &m_terrainSystem->tileRenderIndex,0,(int)m_terrainSystem->GetAllTiles().size());
+				ImGui::SliderInt("Tile Index", &m_terrainSystem->tileRenderIndex, 0, (int)m_terrainSystem->GetAllTiles().size());
 				ImGui::Checkbox("Colors Debug", &m_terrainSystem->colordebug);
 				ImGui::Checkbox("Show borders", &m_terrainSystem->showborders);
 				ImGui::Checkbox("Render heighmap", &m_terrainSystem->renderHMAP);
+				ImGui::Separator();
+				ImGui::Text("Height Map Generation Settings");
+				ImGui::Checkbox("Use generated Height map", &m_terrainSystem->useGeneratedHMAP);
+				ImGui::SliderInt("Octaves", &noiseGen.OCTAVES, 0, 10);
+				ImGui::SliderFloat("Lacunarity", &noiseGen.LACUNARITY, 0.1f, 8.0f);
+				ImGui::SliderFloat("Persistence", &noiseGen.PERSISTENCE, 0.1f, 2.0f);
+				ImGui::SliderFloat("amplitude", &noiseGen.amplitude, 0.1f, 10.0f);
+				ImGui::SliderFloat("frequency", &noiseGen.frequency, 0.1f, 10.0f);
+				ImGui::SliderFloat("maxvalue", &noiseGen.maxValue, 0.0f, 10.0f);
+				ImGui::SliderFloat2("Offset", (float*)&noiseGen.offset, 0.0f, 10.0f);
+				if (m_terrainSystem->useGeneratedHMAP)
+					m_terrainSystem->m_hmapIndex = TexOffsets["GeneratedHeightMap"];
+				else
+					m_terrainSystem->m_hmapIndex = TexOffsets[m_terrainSystem->m_hmapname];
+				if (ImGui::Button("Regenerate"))
+				{
+					RegenerateHeightMap();
+				}
+				if (ImGui::Button("Reset to default"))
+				{
+					noiseGen.OCTAVES = 5;
+					noiseGen.LACUNARITY = 2.0f;
+					noiseGen.PERSISTENCE = 0.5f;
+					noiseGen.amplitude = 1.0f;
+					noiseGen.frequency = 1.0f;
+					noiseGen.maxValue = 0.0f;
+					noiseGen.offset = XMFLOAT2(0.f, 0.f);
+					RegenerateHeightMap();
+				}
 
 			}
 			ImGui::EndTabItem();
@@ -303,7 +332,7 @@ void CGLAB::UpdateIMGUI()
 		{
 			auto campos = cam.GetPosition();
 			ImGui::Text("Camera Position: X=%.2f, Y=%.2f, Z=%.2f",campos.m128_f32[0], campos.m128_f32[1], campos.m128_f32[2]);
-			ImGui::SliderFloat("Camera Speed", &cam.GetSpeed(), 1.0f, 20.0f);
+			ImGui::SliderFloat("Camera Speed", &cam.GetSpeed(), 1.0f, 200.0f);
 			float fov = cam.GetFovY();
 			ImGui::DragFloat("FOV", &fov, 0.01f, 0.01f, 3.14f);
 			cam.SetLens(fov, cam.GetAspect(), cam.GetNearZ(), cam.GetFarZ());
@@ -335,7 +364,7 @@ void CGLAB::Update(const GameTimer& gt)
 	UpdateCamera(gt);
 	// Обновляем terrain систему
 	UpdateTerrain(gt);
-	// === ImGui Setup ===
+	// === ImGui Update ===
 	UpdateIMGUI();
 
 	for (auto& rItem : mAllRitems)
@@ -754,7 +783,7 @@ void CGLAB::LoadAllTextures()
 
 	auto tex = std::make_unique<Texture>();
 	tex->Name = "GeneratedHeightMap";
-	tex->Resource = GenerateNoiseTexture(md3dDevice.Get(), mCommandList.Get(), 1024, 1024, tex->UploadHeap);
+	tex->Resource = noiseGen.GenerateNoiseTexture(md3dDevice.Get(), mCommandList.Get(), 1024, 1024, tex->UploadHeap);
 	mTextures[tex->Name] = std::move(tex);
 	
 }
@@ -2239,85 +2268,4 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> CGLAB::GetStaticSamplers()
 		anisotropicWrap, anisotropicClamp,
 		shadowSampler // Add the new sampler
 	};
-}
-
-ComPtr<ID3D12Resource> GenerateNoiseTexture(ID3D12Device* device,
-	ID3D12GraphicsCommandList* cmdList,
-	int width,
-	int height,
-	ComPtr<ID3D12Resource>& uploadBuffer)
-{
-	// Создаем данные для текстуры - RGBA32_FLOAT (4 float на пиксель)
-	std::vector<float> textureData(width * height * 4);
-
-	// Заполняем все пиксели значением (1,1,1,1)
-	for (int i = 0; i < width * height * 4; i += 4)
-	{
-		int pixelIndex = i / 4;
-
-		// Получаем координаты x и y
-		int x = pixelIndex % width;
-		int y = pixelIndex / width;
-		float u = (float)x / width * 8;
-		float v = (float)y / height * 8;
-		float noise = FBM_Noise(XMFLOAT2(u, v));
-		textureData[i + 0] = noise; // R
-		textureData[i + 1] = noise; // G
-		textureData[i + 2] = noise; // B
-		textureData[i + 3] = 1; // A
-	}
-
-	// Описание текстуры
-	D3D12_RESOURCE_DESC textureDesc = {};
-	textureDesc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-	textureDesc.Alignment = 0;
-	textureDesc.Width = width;
-	textureDesc.Height = height;
-	textureDesc.DepthOrArraySize = 1;
-	textureDesc.MipLevels = 1;
-	textureDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
-	textureDesc.SampleDesc.Count = 1;
-	textureDesc.SampleDesc.Quality = 0;
-	textureDesc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-	textureDesc.Flags = D3D12_RESOURCE_FLAG_NONE;
-
-	// Создаем текстурный ресурс
-	ComPtr<ID3D12Resource> texture;
-	ThrowIfFailed(device->CreateCommittedResource(
-		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
-		D3D12_HEAP_FLAG_NONE,
-		&textureDesc,
-		D3D12_RESOURCE_STATE_COPY_DEST,
-		nullptr,
-		IID_PPV_ARGS(&texture)));
-
-	// Вычисляем размер upload buffer
-	UINT64 uploadBufferSize = GetRequiredIntermediateSize(texture.Get(), 0, 1);
-
-	// Создаем upload buffer
-	ThrowIfFailed(device->CreateCommittedResource(
-		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD),
-		D3D12_HEAP_FLAG_NONE,
-		&CD3DX12_RESOURCE_DESC::Buffer(uploadBufferSize),
-		D3D12_RESOURCE_STATE_GENERIC_READ,
-		nullptr,
-		IID_PPV_ARGS(&uploadBuffer)));
-
-	// Подготавливаем данные для загрузки
-	D3D12_SUBRESOURCE_DATA textureDataDesc = {};
-	textureDataDesc.pData = textureData.data();
-	textureDataDesc.RowPitch = width * 4 * sizeof(float); // 4 float на пиксель
-	textureDataDesc.SlicePitch = textureDataDesc.RowPitch * height;
-
-	// Загружаем данные
-	UpdateSubresources(cmdList, texture.Get(), uploadBuffer.Get(),
-		0, 0, 1, &textureDataDesc);
-
-	// Переводим в состояние для чтения
-	cmdList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(
-		texture.Get(),
-		D3D12_RESOURCE_STATE_COPY_DEST,
-		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE));
-
-	return texture;
 }

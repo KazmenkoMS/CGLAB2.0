@@ -163,17 +163,12 @@ private:
 	std::vector<TerrainTile*> m_visibleTerrainTiles;
 	float heightScale = 100;
 	ComPtr<ID3D12Resource> m_generatedHeightMap;
+	NoiseGenerator noiseGen;
 	// Ìועמהû
 	void GenerateTileGeometry(const XMFLOAT3& worldPos, float tileSize, int lodLevel, std::vector<Vertex>& vertices, std::vector<std::uint32_t>& indices);
 	void BuildTerrainGeometry();
 	void UpdateTerrain(const GameTimer& gt);
-
+	void RegenerateHeightMap();
 	Camera cam;
 
 };
-
-ComPtr<ID3D12Resource> GenerateNoiseTexture(ID3D12Device* device,
-	ID3D12GraphicsCommandList* cmdList,
-	int width,
-	int height,
-	ComPtr<ID3D12Resource>& uploadBuffer);

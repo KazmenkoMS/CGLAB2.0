@@ -46,7 +46,7 @@ class TerrainSystem
 public:
 	TerrainSystem() {};
 
-	void Initialize(ID3D12Device* device, int HeightMapIndex,
+	void Initialize(ID3D12Device* device, int HeightMapIndex, std::string hmapname,
 		float worldSize, int maxLOD);
 	void Update(const XMFLOAT3& cameraPos, BoundingFrustum& frustum);
 	std::vector<std::shared_ptr<TerrainTile>>& GetAllTiles();
@@ -62,6 +62,8 @@ public:
 	bool dynamicLOD = true;
 	bool renderOneTile = false;
 	bool renderHMAP = false;
+	bool useGeneratedHMAP = false;
+	std::string m_hmapname = "";
 private:
 	std::unique_ptr<QuadTreeNode> m_rootNode;
 	ComPtr<ID3D12Resource> m_heightmapTexture;

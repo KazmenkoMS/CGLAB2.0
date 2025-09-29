@@ -50,7 +50,7 @@ void QuadTreeNode::UpdateVisibility(BoundingFrustum& frustum, const XMFLOAT3& ca
 }
 
 // 5. Инициализация terrain системы
-void TerrainSystem::Initialize(ID3D12Device* device, int HeightMapIndex,
+void TerrainSystem::Initialize(ID3D12Device* device, int HeightMapIndex, std::string hmapname,
     float worldSize, int maxLOD)
 {
     m_worldSize = worldSize;
@@ -60,7 +60,7 @@ void TerrainSystem::Initialize(ID3D12Device* device, int HeightMapIndex,
     // Создаем корневой узел квадродерева
     m_rootNode = std::make_unique<QuadTreeNode>();
     m_rootNode->depth = 0;
-
+    m_hmapname = hmapname;
     // Строим квадродерево рекурсивно
     int initialSize = (int)worldSize; // 2^maxLOD
     BuildQuadTree(m_rootNode.get(), 0, 0, initialSize, 0);
@@ -353,7 +353,40 @@ void CGLAB::BuildTerrainGeometry()
     mGeometries[terrainGeo->Name] = std::move(terrainGeo);
 }
 
+void CGLAB::RegenerateHeightMap()
+{
+    FlushCommandQueue();
 
+    ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
+
+    mTextures["GeneratedHeightMap"]->Resource.Reset();
+    mTextures["GeneratedHeightMap"]->UploadHeap.Reset();
+    mTextures["GeneratedHeightMap"]->Resource = noiseGen.GenerateNoiseTexture(md3dDevice.Get(), mCommandList.Get(), 1024, 1024, mTextures["GeneratedHeightMap"]->UploadHeap);
+
+    int textureIndex = TexOffsets["GeneratedHeightMap"];
+    CD3DX12_CPU_DESCRIPTOR_HANDLE srvHandle(
+        mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart()
+    );
+    srvHandle.Offset(textureIndex, mCbvSrvDescriptorSize);
+
+    D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+    srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+    srvDesc.Format = mTextures["GeneratedHeightMap"]->Resource->GetDesc().Format;
+    srvDesc.Texture2D.MipLevels = 1;
+
+    md3dDevice->CreateShaderResourceView(
+        mTextures["GeneratedHeightMap"]->Resource.Get(),
+        &srvDesc,
+        srvHandle
+    );
+
+    ThrowIfFailed(mCommandList->Close());
+    ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
+    mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
+
+    FlushCommandQueue();
+}
 
 void CGLAB::UpdateTerrain(const GameTimer& gt)
 {

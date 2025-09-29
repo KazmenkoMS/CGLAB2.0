@@ -41,6 +41,7 @@ cbuffer cbTerrainTile : register(b3) // b1 - регистр для буфера
     float showborders;
     float debugMode;
     float renderHMAP;
+
 };
 // Texture resources
 Texture2D gHeightMap : register(t0); // Карта высот
@@ -80,9 +81,6 @@ struct PixelOut
     float4 Position : SV_Target2; // Позиция в мировом пространстве
 };
 
-// Константы для terrain
-static const float TEXTURE_REPEAT = 3.0f; // Повторение текстуры на тайле
-static const float NORMAL_SAMPLE_OFFSET = 0.01f; // Смещение для вычисления нормалей
 
 VertexOut VS(VertexIn vin)
 {
