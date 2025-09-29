@@ -73,7 +73,7 @@ private:
 	void DrawSceneToShadowMap();
 	void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
 	void DrawTilesRenderItems(ID3D12GraphicsCommandList* cmdList, std::vector<TerrainTile*> tiles, int HeightIndex);
-	void RenderIMGUI();
+	void UpdateIMGUI();
 	std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetStaticSamplers();
 	void CreateSpotLight(XMFLOAT3 pos, XMFLOAT3 rot, XMFLOAT3 color, float faloff_start, float faloff_end, float strength, float spotpower);
 	void CreatePointLight(XMFLOAT3 pos, XMFLOAT3 color, float faloff_start, float faloff_end, float strength);

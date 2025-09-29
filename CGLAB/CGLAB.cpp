@@ -171,7 +171,7 @@ void CGLAB::ImguiInit()
 	ImGui_ImplDX12_Init(&init_info);
 }
 
-void CGLAB::RenderIMGUI()
+void CGLAB::UpdateIMGUI()
 {
 	ImGui_ImplDX12_NewFrame();
 	ImGui_ImplWin32_NewFrame();
@@ -336,7 +336,7 @@ void CGLAB::Update(const GameTimer& gt)
 	// Обновляем terrain систему
 	UpdateTerrain(gt);
 	// === ImGui Setup ===
-	RenderIMGUI();
+	UpdateIMGUI();
 
 	for (auto& rItem : mAllRitems)
 	{
