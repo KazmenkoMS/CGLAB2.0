@@ -1,4 +1,4 @@
-//***************************************************************************************
+﻿//***************************************************************************************
 // TexColumnsApp.cpp by Frank Luna (C) 2015 All Rights Reserved.
 //***************************************************************************************
 #include "CGLAB.h"
@@ -595,10 +595,10 @@ void CGLAB::UpdateLightCBs(const GameTimer& gt)
 
 			// Define the orthographic projection volume
 			// These values depend heavily on your scene size.
-			float viewWidth = 1024; // Adjust to fit your scene
-			float viewHeight = 1024;
+			float viewWidth = 2024; // Adjust to fit your scene
+			float viewHeight = 2024;
 			float nearZ = 1.0f;
-			float farZ = 10000.0f; // Adjust
+			float farZ = 2000.0f; // Adjust
 			XMMATRIX lightProj = XMMatrixIdentity();
 			if (l.type == 2)
 				lightProj = XMMatrixOrthographicLH(viewWidth, viewHeight, nearZ, farZ);
@@ -1016,7 +1016,7 @@ void CGLAB::BuildLights()
 	ambient.LightCBIndex = static_cast<int>(mLights.size());
 	ambient.Position = { 3.0f, 0.0f, 3.0f };
 	ambient.Color = { 1,1,1 }; // need only x
-	ambient.Strength = 1; 
+	ambient.Strength = 0.5; 
 	ambient.type = 0;
 	XMStoreFloat4x4(&ambient.gWorld, XMMatrixTranspose(XMMatrixTranslation(0, 0, 0) * XMMatrixScaling(1000, 1000, 1000)));
 	mLights.push_back(ambient);
@@ -1024,7 +1024,7 @@ void CGLAB::BuildLights()
 	// directional
 	Light dir;
 	dir.LightCBIndex = static_cast<int>(mLights.size());
-	dir.Position = { 500,8192,500 };
+	dir.Position = { 500,1024,500 };
 	dir.Direction = { 0, -1, 0 };
 	dir.Color = { 1,1,1 };
 	dir.Strength = 1;
@@ -1799,7 +1799,7 @@ void CGLAB::BuildRenderItems()
 	boxRitem->BaseVertexLocation = boxRitem->Geo->DrawArgs["sphere"].BaseVertexLocation;
 	mAllRitems.push_back(std::move(boxRitem));*/
 
-	//RenderCustomMesh("building", "sponza", "", XMFLOAT3(0.07, 0.07, 0.07), XMFLOAT3(0, 3.14 / 2, 0), XMFLOAT3(0, 0, 0));
+	RenderCustomMesh("building", "sponza", "", XMFLOAT3(0.07, 0.07, 0.07), XMFLOAT3(0, 3.14 / 2, 0), XMFLOAT3(500, 100, 500));
 	/*RenderCustomMesh("nigga", "negr", "NiggaMat", XMFLOAT3(3, 3, 3), XMFLOAT3(0, 3.14, 0), XMFLOAT3(0, 3, 0));
 	RenderCustomMesh("nigga2", "negr", "NiggaMat", XMFLOAT3(3, 3, 3), XMFLOAT3(0, -3.14 / 2, 0), XMFLOAT3(-10, 3, 30));
 	RenderCustomMesh("eyeL", "left", "eye", XMFLOAT3(3, 3, 3), XMFLOAT3(0, 3.14, 0), XMFLOAT3(0.6,3.87,1.1));
