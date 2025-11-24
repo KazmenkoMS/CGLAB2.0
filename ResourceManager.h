@@ -1,37 +1,24 @@
 #pragma once
 #include <string>
 #include <d3dUtil.h>
+using namespace DirectX;
 class ResourceManager {
 public:
-	static ResourceManager& GetInstance() {
-		static ResourceManager instance;
-		return instance;
+	ResourceManager() = default;
+	~ResourceManager() = default;
+	void Init(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList) {
+		md3dDevice = device;
+		mCommandList = cmdList;
 	}
+	void LoadTextures();
+	void CreateMaterial(std::string name, int DiffuseIndex, int NormalIndex, XMFLOAT4 DiffuseAlbedo, XMFLOAT3 FresnelR0, float roughness);
+	void BuildMaterials();
 
-	void Initialize(const std::wstring& basePath) {
-		mBasePath = basePath;
-		if (!mBasePath.empty() && mBasePath.back() != L'\\') {
-			mBasePath += L"\\";
-		}
-	}
-
-	std::wstring GetModelPath(const std::string& filename) const {
-		return mBasePath + L"Models\\" + AnsiToWString(filename);
-	}
-
-	std::wstring GetTexturePath(const std::string& filename) const {
-		return mBasePath + L"Textures\\" + AnsiToWString(filename);
-	}
-
-	std::wstring GetShaderPath(const std::string& filename) const {
-		return mBasePath + L"Shaders\\" + AnsiToWString(filename);
-	}
-
-	bool FileExists(const std::wstring& path) const {
-		std::ifstream file(path);
-		return file.good();
-	}
+    std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
+    std::unordered_map<std::string, std::unique_ptr<Texture>> mTextures;
+	std::unordered_map<std::string, int>TexOffsets;
 
 private:
-	std::wstring mBasePath = L"";
+	ID3D12Device* md3dDevice = nullptr;
+	ID3D12GraphicsCommandList* mCommandList = nullptr;
 };

@@ -52,6 +52,8 @@ struct RenderItem
     UINT IndexCount = 0;
     UINT StartIndexLocation = 0;
     int BaseVertexLocation = 0;
+
+	std::string name;
 };
 
 enum class RenderLayer : int
@@ -89,20 +91,21 @@ private:
     void UpdateShadowTransform(const GameTimer& gt);
     void UpdateMainPassCB(const GameTimer& gt);
     void UpdateShadowPassCB(const GameTimer& gt);
+    void ImguiUpdate();
 
-    void LoadTextures();
     void BuildRootSignature();
+    void BuildGeometryRootSignature();
+    void BuildLightingRootSignature();
     void BuildDescriptorHeaps();
     void BuildShadersAndInputLayout();
-    void BuildShapeGeometry();
-    void BuildSkullGeometry();
     void BuildPSOs();
     void BuildFrameResources();
-    void BuildMaterials();
+    void CreateRenderItem(std::string name, std::string materialname, int RItemLayer, XMMATRIX& scaling, XMMATRIX& rotation, XMMATRIX& translation, XMMATRIX texTransform = XMMatrixIdentity(), std::string drawargs = "");
     void BuildRenderItems();
     void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
     void DrawSceneToShadowMap();
-
+    void ImguiInit();
+	
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetStaticSamplers();
 
 private:
@@ -115,8 +118,7 @@ private:
 
     ComPtr<ID3D12DescriptorHeap> mSrvDescriptorHeap = nullptr;
 
-    std::unordered_map<std::string, std::unique_ptr<Material>> mMaterials;
-    std::unordered_map<std::string, std::unique_ptr<Texture>> mTextures;
+    std::unique_ptr<ResourceManager> mResourceMgr;
     std::unordered_map<std::string, ComPtr<ID3DBlob>> mShaders;
     std::unordered_map<std::string, ComPtr<ID3D12PipelineState>> mPSOs;
 
@@ -128,11 +130,11 @@ private:
     // Render items divided by PSO.
     std::vector<RenderItem*> mRitemLayer[(int)RenderLayer::Count];
 
-    UINT mSkyTexHeapIndex = 0;
-    UINT mShadowMapHeapIndex = 0;
+    //UINT mSkyTexHeapIndex = 0;
+    //UINT mShadowMapHeapIndex = 0;
 
-    UINT mNullCubeSrvIndex = 0;
-    UINT mNullTexSrvIndex = 0;
+    //UINT mNullCubeSrvIndex = 0;
+    //UINT mNullTexSrvIndex = 0;
 
     CD3DX12_GPU_DESCRIPTOR_HANDLE mNullSrv;
 
@@ -157,7 +159,6 @@ private:
     POINT mLastMousePos;
 
 	std::unique_ptr<GeometryManager> mGeomMgr;
-    std::unordered_map<std::string, int>TexOffsets;
 
 
     std::unique_ptr<GBuffer> mGBuffer;
@@ -165,9 +166,12 @@ private:
     ComPtr<ID3D12PipelineState> mPSOs_DeferredLight; // Light Pass
     int gBufferSrvOffset; 
     // Новый RootSignature для Light Pass
-    ComPtr<ID3D12RootSignature> mRootSignatureLightPass;
+    ComPtr<ID3D12RootSignature> mGeometryRootSignature;
+    ComPtr<ID3D12RootSignature> mLightingRootSignature;
 
     // Методы
     void BuildDeferredRootSignature();
 	void BuildGBuffer();
+
+    ComPtr<ID3D12DescriptorHeap> m_ImGuiSrvDescriptorHeap; // Member variable
 };

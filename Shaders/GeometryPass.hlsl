@@ -1,22 +1,68 @@
-//***************************************************************************************
-// Default.hlsl by Frank Luna (C) 2015 All Rights Reserved.
-//***************************************************************************************
 
-// Defaults for number of lights.
-#ifndef NUM_DIR_LIGHTS
-    #define NUM_DIR_LIGHTS 3
-#endif
+struct Light
+{
+    float3 Strength;
+    float FalloffStart; // point/spot light only
+    float3 Direction; // directional/spot light only
+    float FalloffEnd; // point/spot light only
+    float3 Position; // point light only
+    float SpotPower; // spot light only
+};
 
-#ifndef NUM_POINT_LIGHTS
-    #define NUM_POINT_LIGHTS 0
-#endif
+struct MaterialData
+{
+    float4 DiffuseAlbedo;
+    float3 FresnelR0;
+    float Roughness;
+    float4x4 MatTransform;
+    uint DiffuseMapIndex;
+    uint NormalMapIndex;
+    uint MatPad1;
+    uint MatPad2;
+};
+StructuredBuffer<MaterialData> gMaterialData : register(t0, space1);
+Texture2D gTextureMaps[100] : register(t0);
+cbuffer cbPerObject : register(b0)
+{
+    float4x4 gWorld;
+    float4x4 gTexTransform;
+    uint gMaterialIndex;
+    uint gObjPad0;
+    uint gObjPad1;
+    uint gObjPad2;
+};
 
-#ifndef NUM_SPOT_LIGHTS
-    #define NUM_SPOT_LIGHTS 0
-#endif
+cbuffer cbPass : register(b1)
+{
+    float4x4 gView;
+    float4x4 gInvView;
+    float4x4 gProj;
+    float4x4 gInvProj;
+    float4x4 gViewProj;
+    float4x4 gInvViewProj;
+    float4x4 gShadowTransform;
+    float3 gEyePosW;
+    float cbPerObjectPad1;
+    float2 gRenderTargetSize;
+    float2 gInvRenderTargetSize;
+    float gNearZ;
+    float gFarZ;
+    float gTotalTime;
+    float gDeltaTime;
+    float4 gAmbientLight;
+    
+    Light gLights[16];
+};
 
-// Include common HLSL code.
-#include "Common.hlsl"
+SamplerState gsamPointWrap : register(s0);
+SamplerState gsamPointClamp : register(s1);
+SamplerState gsamLinearWrap : register(s2);
+SamplerState gsamLinearClamp : register(s3);
+SamplerState gsamAnisotropicWrap : register(s4);
+SamplerState gsamAnisotropicClamp : register(s5);
+SamplerComparisonState gsamShadow : register(s6);
+
+
 
 struct VertexIn
 {
@@ -43,6 +89,29 @@ struct PixelOut
     float4 NormalFresnel : SV_Target1; // RT1
     float4 Position : SV_Target2; // RT2
 };
+
+
+//---------------------------------------------------------------------------------------
+// Transforms a normal map sample to world space.
+//---------------------------------------------------------------------------------------
+float3 NormalSampleToWorldSpace(float3 normalMapSample, float3 unitNormalW, float3 tangentW)
+{
+	// Uncompress each component from [0,1] to [-1,1].
+    float3 normalT = 2.0f * normalMapSample - 1.0f;
+
+	// Build orthonormal basis.
+    float3 N = unitNormalW;
+    float3 T = normalize(tangentW - dot(tangentW, N) * N);
+    float3 B = cross(N, T);
+
+    float3x3 TBN = float3x3(T, B, N);
+
+	// Transform from tangent space to world space.
+    float3 bumpedNormalW = mul(normalT, TBN);
+
+    return bumpedNormalW;
+}
+
 
 VertexOut VS(VertexIn vin)
 {
@@ -97,7 +166,6 @@ PixelOut PS(VertexOut pin) : SV_Target
     pin.NormalW = normalize(pin.NormalW);
     float4 normalMapSample = gTextureMaps[NonUniformResourceIndex(normalMapIndex)].Sample(gsamAnisotropicWrap, pin.TexC);
     float3 bumpedNormalW = NormalSampleToWorldSpace(normalMapSample.rgb, pin.NormalW, pin.TangentW);
-	
     // RT0: Цвет (RGB) + Шероховатость (A)
     pout.AlbedoRoughness = float4(diffuseAlbedo.rgb, roughness);
 

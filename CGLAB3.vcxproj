@@ -158,8 +158,15 @@
     <ClCompile Include="Common\GBuffer.cpp" />
     <ClCompile Include="Common\GeometryGenerator.cpp" />
     <ClCompile Include="Common\GeometryManager.cpp" />
+    <ClCompile Include="Common\imgui.cpp" />
+    <ClCompile Include="Common\imgui_draw.cpp" />
+    <ClCompile Include="Common\imgui_impl_dx12.cpp" />
+    <ClCompile Include="Common\imgui_impl_win32.cpp" />
+    <ClCompile Include="Common\imgui_tables.cpp" />
+    <ClCompile Include="Common\imgui_widgets.cpp" />
     <ClCompile Include="Common\MathHelper.cpp" />
     <ClCompile Include="Common\ShadowMap.cpp" />
+    <ClCompile Include="ResourceManager.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="CGLAB.h" />
