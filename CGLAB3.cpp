@@ -59,45 +59,84 @@ bool CGLAB::Initialize()
 	if (!D3DApp::Initialize())
 		return false;
 
-	// Reset the command list to prep for initialization commands.
+	// reset command list
 	ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
 
+	// TODO - make full camera initialization in separate method
 	mCamera.SetPosition(0.0f, 2.0f, -15.0f);
-
 	
 	mGeomMgr = std::make_unique<GeometryManager>();
+	mGeomMgr->BuildBasicGeometry(md3dDevice.Get(), mCommandList.Get());
+	mGeomMgr->BuildGeometryFromFile(md3dDevice.Get(), mCommandList.Get(), "Models/skull.obj", "skullGeo");
+
 	mResourceMgr = std::make_unique<ResourceManager>();
 	mResourceMgr->Init(md3dDevice.Get(), mCommandList.Get());
 	mResourceMgr->LoadTextures();
-	mGeomMgr->BuildBasicGeometry(md3dDevice.Get(), mCommandList.Get());
-	mGeomMgr->BuildGeometryFromFile(md3dDevice.Get(), mCommandList.Get(), "Models/skull.obj", "skullGeo");
-	//LoadTextures();
+
 	BuildRootSignature();
 	BuildShadowsRootSignature();
+	BuildGeometryRootSignature();
+	BuildLightingRootSignature();
+
 	BuildDescriptorHeaps();
+	mResourceMgr->BuildMaterials();
+
 	BuildShadersAndInputLayout();
 	BuildLights();
 	SetLightShapes();
-	BuildGeometryRootSignature();
-	BuildLightingRootSignature();
 	BuildGBuffer();
-	mResourceMgr->BuildMaterials();
 	BuildRenderItems();
 	BuildFrameResources();
 	BuildPSOs();
 	ImguiInit();
-	// Execute the initialization commands.
+
+	// execute
 	ThrowIfFailed(mCommandList->Close());
 	ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
 	mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
 	OnResize();
 
-	// Wait until initialization is complete.
+	// wait
 	FlushCommandQueue();
 
 	return true;
 }
 
+void CGLAB::ImguiInit()
+{
+	D3D12_DESCRIPTOR_HEAP_DESC imGuiHeapDesc = {};
+	imGuiHeapDesc.NumDescriptors = 1;
+	imGuiHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+	imGuiHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+	imGuiHeapDesc.NodeMask = 0; // Or the appropriate node mask if you have multiple GPUs
+	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&imGuiHeapDesc, IID_PPV_ARGS(&m_ImGuiSrvDescriptorHeap)));
+
+	// INITIALIZE IMGUI ////////////////////
+	IMGUI_CHECKVERSION();
+	ImGui::CreateContext();
+	ImGui::StyleColorsDark();
+	////////////////////////////////////////
+	ImGuiIO& io = ImGui::GetIO();
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
+	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
+
+	ImGui_ImplDX12_InitInfo init_info = {};
+	init_info.Device = md3dDevice.Get();
+	init_info.CommandQueue = mCommandQueue.Get();
+	init_info.NumFramesInFlight = gNumFrameResources;
+	init_info.RTVFormat = DXGI_FORMAT_R8G8B8A8_UNORM; // Or your render target format.
+	init_info.DSVFormat = DXGI_FORMAT_UNKNOWN;
+	init_info.SrvDescriptorHeap = m_ImGuiSrvDescriptorHeap.Get();
+	init_info.LegacySingleSrvCpuDescriptor = m_ImGuiSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
+	init_info.LegacySingleSrvGpuDescriptor = m_ImGuiSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
+	ImGui_ImplWin32_Init(mhMainWnd);
+	ImGui_ImplDX12_Init(&init_info);
+}
+
+
+/*
+* MAIN METHODS
+*/
 void CGLAB::OnResize()
 {
 	D3DApp::OnResize();
@@ -275,7 +314,6 @@ void CGLAB::Draw(const GameTimer& gt)
 		}
 	}
 
-
 	// ==========================================
 	// 4. Skybox Pass
 	// ==========================================
@@ -350,6 +388,7 @@ void CGLAB::Draw(const GameTimer& gt)
 	mCommandQueue->Signal(mFence.Get(), mCurrentFence);
 }
 
+
 /*
 INPUT HANDLING
 */
@@ -405,6 +444,7 @@ void CGLAB::OnKeyboardInput(const GameTimer& gt)
 	mCamera.UpdateViewMatrix();
 }
 
+
 /*
 UPDATE FUNCTIONS
 */
@@ -412,7 +452,7 @@ void CGLAB::AnimateMaterials(const GameTimer& gt)
 {
 
 }
-
+// Object variables
 void CGLAB::UpdateObjectCBs(const GameTimer& gt)
 {
 	auto currObjectCB = mCurrFrameResource->ObjectCB.get();
@@ -437,34 +477,7 @@ void CGLAB::UpdateObjectCBs(const GameTimer& gt)
 		}
 	}
 }
-
-void CGLAB::UpdateMaterialBuffer(const GameTimer& gt)
-{
-	auto currMaterialBuffer = mCurrFrameResource->MaterialBuffer.get();
-	for (auto& e : mResourceMgr->mMaterials)
-	{
-		// Only update the cbuffer data if the constants have changed.  If the cbuffer
-		// data changes, it needs to be updated for each FrameResource.
-		Material* mat = e.second.get();
-		if (mat->NumFramesDirty > 0)
-		{
-			XMMATRIX matTransform = XMLoadFloat4x4(&mat->MatTransform);
-
-			MaterialData matData;
-			matData.DiffuseAlbedo = mat->DiffuseAlbedo;
-			matData.FresnelR0 = mat->FresnelR0;
-			matData.Roughness = mat->Roughness;
-			XMStoreFloat4x4(&matData.MatTransform, XMMatrixTranspose(matTransform));
-			matData.DiffuseMapIndex = mat->DiffuseSrvHeapIndex;
-			matData.NormalMapIndex = mat->NormalSrvHeapIndex;
-
-			currMaterialBuffer->CopyData(mat->MatCBIndex, matData);
-
-			// Next FrameResource need to be updated too.
-			mat->NumFramesDirty--;
-		}
-	}
-}
+// Main pass variables(gWorld, gView, gProj, etc)
 void CGLAB::UpdateMainPassCB(const GameTimer& gt)
 {
 	XMMATRIX view = mCamera.GetView();
@@ -497,6 +510,33 @@ void CGLAB::UpdateMainPassCB(const GameTimer& gt)
 	currPassCB->CopyData(0, mMainPassCB);
 }
 
+void CGLAB::UpdateMaterialBuffer(const GameTimer& gt)
+{
+	auto currMaterialBuffer = mCurrFrameResource->MaterialBuffer.get();
+	for (auto& e : mResourceMgr->mMaterials)
+	{
+		// Only update the cbuffer data if the constants have changed.  If the cbuffer
+		// data changes, it needs to be updated for each FrameResource.
+		Material* mat = e.second.get();
+		if (mat->NumFramesDirty > 0)
+		{
+			XMMATRIX matTransform = XMLoadFloat4x4(&mat->MatTransform);
+
+			MaterialData matData;
+			matData.DiffuseAlbedo = mat->DiffuseAlbedo;
+			matData.FresnelR0 = mat->FresnelR0;
+			matData.Roughness = mat->Roughness;
+			XMStoreFloat4x4(&matData.MatTransform, XMMatrixTranspose(matTransform));
+			matData.DiffuseMapIndex = mat->DiffuseSrvHeapIndex;
+			matData.NormalMapIndex = mat->NormalSrvHeapIndex;
+
+			currMaterialBuffer->CopyData(mat->MatCBIndex, matData);
+
+			// Next FrameResource need to be updated too.
+			mat->NumFramesDirty--;
+		}
+	}
+}
 
 void CGLAB::UpdateLightCBs(const GameTimer& gt)
 {
@@ -508,13 +548,12 @@ void CGLAB::UpdateLightCBs(const GameTimer& gt)
 	{
 		LightConstants lConst;
 		ShadowConstants sConst;
-		if (l->type == 1)
+		if (l->type == 1) // Point Light
 		{
 			XMStoreFloat4x4(&l->gWorld, XMMatrixTranspose(XMMatrixScaling(l->FalloffEnd * 2, l->FalloffEnd * 2, l->FalloffEnd * 2) * XMMatrixTranslation(l->Position.x, l->Position.y, l->Position.z)));
 		}
-		if (l->type == 3)
+		if (l->type == 3) // Spot Light
 		{
-
 			XMStoreFloat4x4(&l->gWorld, XMMatrixTranspose(XMMatrixScaling(l->FalloffEnd * 4 / 3, l->FalloffEnd, l->FalloffEnd * 4 / 3) * XMMatrixTranslation(0, -l->FalloffEnd / 2, 0) *
 				XMMatrixRotationRollPitchYaw(XMConvertToRadians(l->Rotation.x), XMConvertToRadians(l->Rotation.y), XMConvertToRadians(l->Rotation.z)) *
 				XMMatrixTranslation(l->Position.x, l->Position.y, l->Position.z)));
@@ -528,26 +567,23 @@ void CGLAB::UpdateLightCBs(const GameTimer& gt)
 			v = XMLoadFloat3(&d);
 			v = XMVector3TransformNormal(v, XMMatrixRotationRollPitchYaw(XMConvertToRadians(l->Rotation.x), XMConvertToRadians(l->Rotation.y), XMConvertToRadians(l->Rotation.z)));
 			l->LightUp = v;
-		}
-		if (l->type == 3 && l->CastsShadows) // Directional Light
-		{
-			// Create an orthographic projection for the directional light->
-		// The volume needs to encompass the scene or relevant parts.
-		// This is a simplified approach; Cascaded Shadow Maps (CSM) are better for large scenes.
-			XMFLOAT3 Pos(l->Position);
-			XMVECTOR lightPos = XMLoadFloat3(&Pos);
-			XMVECTOR lightDir = XMLoadFloat3(&l->Direction);
-			XMVECTOR targetPos = lightPos + lightDir; // Look at origin or scene center
-			XMVECTOR lightUp = l->LightUp;
+			if (l->CastsShadows)
+			{
+				XMFLOAT3 Pos(l->Position);
+				XMVECTOR lightPos = XMLoadFloat3(&Pos);
+				XMVECTOR lightDir = XMLoadFloat3(&l->Direction);
+				XMVECTOR targetPos = lightPos + lightDir; 
+				XMVECTOR lightUp = l->LightUp;
 
-			XMMATRIX lightView = XMMatrixLookAtLH(lightPos, targetPos, lightUp);
-			XMStoreFloat4x4(&l->LightView, lightView);
+				XMMATRIX lightView = XMMatrixLookAtLH(lightPos, targetPos, lightUp);
+				XMStoreFloat4x4(&l->LightView, lightView);
 
-			XMMATRIX lightProj = XMMatrixPerspectiveFovLH(0.5f * MathHelper::Pi, 1.0f, 1.0f, 1000.0f);
-			XMStoreFloat4x4(&l->LightProj, lightProj);
-			XMStoreFloat4x4(&l->LightViewProj, XMMatrixTranspose(XMMatrixMultiply(lightView, lightProj)));
+				XMMATRIX lightProj = XMMatrixPerspectiveFovLH(0.5f * MathHelper::Pi, 1.0f, 1.0f, 1000.0f);
+				XMStoreFloat4x4(&l->LightProj, lightProj);
+				XMStoreFloat4x4(&l->LightViewProj, XMMatrixTranspose(XMMatrixMultiply(lightView, lightProj)));
+			}
 		}
-		else if (l->type == 2 && l->CastsShadows)
+		else if (l->type == 2 && l->CastsShadows) // Directional Light
 		{
 			// Only the first "main" light casts a shadow.
 			XMVECTOR lightDir = XMLoadFloat3(&l->Direction);
@@ -577,8 +613,9 @@ void CGLAB::UpdateLightCBs(const GameTimer& gt)
 			XMStoreFloat4x4(&l->LightView, lightView);
 			XMStoreFloat4x4(&l->LightProj, lightProj);
 			XMStoreFloat4x4(&l->LightViewProj, XMMatrixTranspose(XMMatrixMultiply(lightView, lightProj)));
-
 		}
+
+		// Fill in the light constant buffer.
 		lConst.Color = l->Color;
 		lConst.FalloffStart = l->FalloffStart;
 		lConst.Direction = l->Direction;
@@ -593,6 +630,7 @@ void CGLAB::UpdateLightCBs(const GameTimer& gt)
 		lConst.LightViewProj = l->LightViewProj;
 		lConst.enablePCF = l->enablePCF;
 		lConst.pcf_level = l->pcf_level;
+		// Fill in the shadow constant buffer.
 		sConst.LightViewProj = l->LightViewProj;
 		currShadowCB->CopyData(l->LightCBIndex, sConst);
 		currLightCB->CopyData(l->LightCBIndex, lConst);
@@ -697,7 +735,9 @@ void CGLAB::ImguiUpdate()
 }
 
 
-
+/*
+RESOURCE STUFF (descriptor heaps, etc.)
+*/
 void CGLAB::BuildDescriptorHeaps()
 {
 	//
@@ -740,10 +780,10 @@ void CGLAB::BuildDescriptorHeaps()
 		}
 	}
 
+	// srv for cube map
 	if (mResourceMgr->mTextures.size() != 0)
 	{
 		auto skyCubeMap = mResourceMgr->mTextures["skyCubeMap"]->Resource;
-		// srv for cube map
 		srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
 		srvDesc.TextureCube.MostDetailedMip = 0;
 		srvDesc.TextureCube.MipLevels = skyCubeMap->GetDesc().MipLevels;
@@ -753,33 +793,29 @@ void CGLAB::BuildDescriptorHeaps()
 		md3dDevice->CreateShaderResourceView(skyCubeMap.Get(), &srvDesc, hDescriptor);
 	}
 
-	mResourceMgr->TexOffsets["shadow"] = mTextureCount + 1;
-
-	mResourceMgr->TexOffsets["nullCube"] = mTextureCount + 2;
-	mResourceMgr->TexOffsets["nullTex"] = mTextureCount + 3;
-
 	auto srvCpuStart = mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
 	auto srvGpuStart = mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
 	auto dsvCpuStart = mDsvHeap->GetCPUDescriptorHandleForHeapStart();
 
-
+	// null cubetex descriptor
+	mResourceMgr->TexOffsets["nullCube"] = mTextureCount + 1;
 	auto nullSrv = CD3DX12_CPU_DESCRIPTOR_HANDLE(srvCpuStart, mResourceMgr->TexOffsets["nullCube"], mCbvSrvUavDescriptorSize);
 	mNullSrv = CD3DX12_GPU_DESCRIPTOR_HANDLE(srvGpuStart, mResourceMgr->TexOffsets["nullCube"], mCbvSrvUavDescriptorSize);
-
 	md3dDevice->CreateShaderResourceView(nullptr, &srvDesc, nullSrv);
 	nullSrv.Offset(1, mCbvSrvUavDescriptorSize);
 
+	// null texture2D descriptor
+	mResourceMgr->TexOffsets["nullTex"] = mTextureCount + 2;
 	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
 	srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 	srvDesc.Texture2D.MostDetailedMip = 0;
 	srvDesc.Texture2D.MipLevels = 1;
 	srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 	md3dDevice->CreateShaderResourceView(nullptr, &srvDesc, nullSrv);
-
 	nullSrv.Offset(1, mCbvSrvUavDescriptorSize);
 
+	// shadow map descriptors
 	int shadowsrvOffset = mResourceMgr->TexOffsets["nullCube"] + 2;
-
 	int i = 1;
 	for (auto& light : mLights)
 	{
@@ -794,12 +830,276 @@ void CGLAB::BuildDescriptorHeaps()
 			i++;
 			shadowsrvOffset++;
 		}
-
 	}
-	gBufferSrvOffset = 50;
-
+	gBufferSrvOffset = 50; // last three descriptors are reserved for GBuffer
 }
 
+void CGLAB::CreateRtvAndDsvDescriptorHeaps()
+{
+	// Add +6 RTV for cube render target.
+	D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc;
+	rtvHeapDesc.NumDescriptors = SwapChainBufferCount + 3; // +3 for GBuffer RTVs
+	rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+	rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+	rtvHeapDesc.NodeMask = 0;
+	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(
+		&rtvHeapDesc, IID_PPV_ARGS(mRtvHeap.GetAddressOf())));
+
+	// Add +1 DSV for shadow map.
+	D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc;
+	dsvHeapDesc.NumDescriptors = 20 + 1; // MAX 20 lights +1 shadow map
+	dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+	dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
+	dsvHeapDesc.NodeMask = 0;
+	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(
+		&dsvHeapDesc, IID_PPV_ARGS(mDsvHeap.GetAddressOf())));
+}
+
+void CGLAB::BuildGBuffer()
+{
+	mGBuffer = std::make_unique<GBuffer>(md3dDevice.Get(), mClientWidth, mClientHeight);
+
+	CD3DX12_CPU_DESCRIPTOR_HANDLE srvHeapHandle(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+	srvHeapHandle.Offset(gBufferSrvOffset, mCbvSrvUavDescriptorSize);
+
+	// 2. Получаем GPU хендл (для биндинга в шейдер) и ТОЖЕ оборачиваем в CD3DX12
+	CD3DX12_GPU_DESCRIPTOR_HANDLE gpuSrvHandle(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+	gpuSrvHandle.Offset(gBufferSrvOffset, mCbvSrvUavDescriptorSize); // Теперь Offset работает!
+
+	// 3. RTV хендл тоже оборачиваем
+	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHeapHandle(mRtvHeap->GetCPUDescriptorHandleForHeapStart());
+	rtvHeapHandle.Offset(SwapChainBufferCount, mRtvDescriptorSize);
+
+	// 4. Вызываем функцию (она теперь примет аргументы, так как типы совпадают)
+	mGBuffer->BuildDescriptors(
+		srvHeapHandle,
+		gpuSrvHandle,
+		rtvHeapHandle,
+		mCbvSrvUavDescriptorSize,
+		mRtvDescriptorSize
+	);
+}
+
+void CGLAB::BuildShadersAndInputLayout()
+{
+	const D3D_SHADER_MACRO alphaTestDefines[] =
+	{
+		"ALPHA_TEST", "1",
+		NULL, NULL
+	};
+
+	mShaders["shadowVS"] = d3dUtil::CompileShader(L"Shaders\\Shadows.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["shadowOpaquePS"] = d3dUtil::CompileShader(L"Shaders\\Shadows.hlsl", nullptr, "PS", "ps_5_1");
+	mShaders["shadowAlphaTestedPS"] = d3dUtil::CompileShader(L"Shaders\\Shadows.hlsl", alphaTestDefines, "PS", "ps_5_1");
+
+	mShaders["debugVS"] = d3dUtil::CompileShader(L"Shaders\\ShadowDebug.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["debugPS"] = d3dUtil::CompileShader(L"Shaders\\ShadowDebug.hlsl", nullptr, "PS", "ps_5_1");
+
+	mShaders["skyVS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["skyPS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", nullptr, "PS", "ps_5_1");
+
+	mShaders["GPassVS"] = d3dUtil::CompileShader(L"Shaders\\GeometryPass.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["GPassPS"] = d3dUtil::CompileShader(L"Shaders\\GeometryPass.hlsl", nullptr, "PS", "ps_5_1");
+
+	mShaders["lightingVS"] = d3dUtil::CompileShader(L"Shaders\\LightingPass.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["lightingPS"] = d3dUtil::CompileShader(L"Shaders\\LightingPass.hlsl", nullptr, "PS", "ps_5_1");
+	mShaders["lightingPSDebug"] = d3dUtil::CompileShader(L"Shaders\\LightingPass.hlsl", nullptr, "PS_debug", "ps_5_1");
+	mShaders["lightingQUADVS"] = d3dUtil::CompileShader(L"Shaders\\LightingPass.hlsl", nullptr, "VS_QUAD", "vs_5_1");
+
+
+	mInputLayout =
+	{
+		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+		{ "TANGENT", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
+	};
+}
+
+void CGLAB::BuildPSOs()
+{
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDesc;
+
+	//
+	// PSO for opaque objects.
+	//
+	ZeroMemory(&opaquePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
+	opaquePsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
+	opaquePsoDesc.pRootSignature = mRootSignature.Get();
+	opaquePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+	opaquePsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+	opaquePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+	opaquePsoDesc.SampleMask = UINT_MAX;
+	opaquePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	opaquePsoDesc.NumRenderTargets = 1;
+	opaquePsoDesc.RTVFormats[0] = mBackBufferFormat;
+	opaquePsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
+	opaquePsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
+	opaquePsoDesc.DSVFormat = mDepthStencilFormat;
+
+	//
+	// PSO for shadow map pass.
+	//
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC smapPsoDesc = opaquePsoDesc;
+	smapPsoDesc.RasterizerState.DepthBias = 100000;
+	smapPsoDesc.RasterizerState.DepthBiasClamp = 0.0f;
+	smapPsoDesc.RasterizerState.SlopeScaledDepthBias = 1.0f;
+	smapPsoDesc.pRootSignature = mShadowsRootSignature.Get();
+	smapPsoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["shadowVS"]->GetBufferPointer()),
+		mShaders["shadowVS"]->GetBufferSize()
+	};
+	smapPsoDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["shadowOpaquePS"]->GetBufferPointer()),
+		mShaders["shadowOpaquePS"]->GetBufferSize()
+	};
+
+	smapPsoDesc.RTVFormats[0] = DXGI_FORMAT_UNKNOWN; // no render target
+	smapPsoDesc.NumRenderTargets = 0;
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&smapPsoDesc, IID_PPV_ARGS(&mPSOs["shadow_opaque"])));
+
+	//
+	// PSO for debug layer.
+	//
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC debugPsoDesc = opaquePsoDesc;
+	debugPsoDesc.pRootSignature = mRootSignature.Get();
+	debugPsoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["debugVS"]->GetBufferPointer()),
+		mShaders["debugVS"]->GetBufferSize()
+	};
+	debugPsoDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["debugPS"]->GetBufferPointer()),
+		mShaders["debugPS"]->GetBufferSize()
+	};
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&debugPsoDesc, IID_PPV_ARGS(&mPSOs["debug"])));
+
+	//
+	// PSO for sky.
+	//
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC skyPsoDesc = opaquePsoDesc;
+	skyPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+	skyPsoDesc.DepthStencilState.DepthEnable = true;
+	skyPsoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+	skyPsoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
+	skyPsoDesc.pRootSignature = mRootSignature.Get();
+	skyPsoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["skyVS"]->GetBufferPointer()),
+		mShaders["skyVS"]->GetBufferSize()
+	};
+	skyPsoDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["skyPS"]->GetBufferPointer()),
+		mShaders["skyPS"]->GetBufferSize()
+	};
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skyPsoDesc, IID_PPV_ARGS(&mPSOs["sky"])));
+
+	//
+	// PSO for Geometry pass.
+	//
+	DXGI_FORMAT GBUFFER_FORMATS[3] = {
+		DXGI_FORMAT_R8G8B8A8_UNORM,      // RT0: Albedo + Roughness
+		DXGI_FORMAT_R16G16B16A16_FLOAT,  // RT1: Normal + Fresnel
+		DXGI_FORMAT_R32G32B32A32_FLOAT   // RT2: Position
+	};
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC gPassPsoDesc = opaquePsoDesc;
+
+	gPassPsoDesc.VS = { reinterpret_cast<BYTE*>(mShaders["GPassVS"]->GetBufferPointer()), mShaders["GPassVS"]->GetBufferSize() };
+	gPassPsoDesc.PS = { reinterpret_cast<BYTE*>(mShaders["GPassPS"]->GetBufferPointer()), mShaders["GPassPS"]->GetBufferSize() };
+
+	gPassPsoDesc.NumRenderTargets = 3;
+	gPassPsoDesc.RTVFormats[0] = GBUFFER_FORMATS[0];
+	gPassPsoDesc.RTVFormats[1] = GBUFFER_FORMATS[1];
+	gPassPsoDesc.RTVFormats[2] = GBUFFER_FORMATS[2];
+
+	gPassPsoDesc.DepthStencilState.DepthEnable = true;
+	gPassPsoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
+	gPassPsoDesc.pRootSignature = mGeometryRootSignature.Get();
+
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&gPassPsoDesc, IID_PPV_ARGS(&mPSOs["GeometryPass"])));
+
+	//
+	// PSO for Lighting pass.
+	//
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC lightPsoDesc = {};
+	lightPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
+	lightPsoDesc.pRootSignature = mLightingRootSignature.Get();
+	lightPsoDesc.VS = { reinterpret_cast<BYTE*>(mShaders["lightingVS"]->GetBufferPointer()),
+						mShaders["lightingVS"]->GetBufferSize() };
+	lightPsoDesc.PS = { reinterpret_cast<BYTE*>(mShaders["lightingPS"]->GetBufferPointer()),
+						mShaders["lightingPS"]->GetBufferSize() };
+	lightPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+	lightPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_FRONT;
+
+	D3D12_RENDER_TARGET_BLEND_DESC rtBlendDesc = {};
+	rtBlendDesc.BlendEnable = TRUE;
+	rtBlendDesc.LogicOpEnable = FALSE;
+	rtBlendDesc.SrcBlend = D3D12_BLEND_ONE;
+	rtBlendDesc.DestBlend = D3D12_BLEND_ONE;
+	rtBlendDesc.BlendOp = D3D12_BLEND_OP_ADD;
+	rtBlendDesc.SrcBlendAlpha = D3D12_BLEND_ONE;
+	rtBlendDesc.DestBlendAlpha = D3D12_BLEND_ONE;
+	rtBlendDesc.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+	rtBlendDesc.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+
+	D3D12_BLEND_DESC blendDesc = {};
+	blendDesc.AlphaToCoverageEnable = FALSE;
+	blendDesc.IndependentBlendEnable = FALSE;
+	blendDesc.RenderTarget[0] = rtBlendDesc;
+	lightPsoDesc.BlendState = blendDesc;
+	lightPsoDesc.SampleMask = UINT_MAX;
+	lightPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	lightPsoDesc.NumRenderTargets = 1;
+	lightPsoDesc.RTVFormats[0] = mBackBufferFormat;
+	lightPsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
+	lightPsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
+	lightPsoDesc.DSVFormat = mDepthStencilFormat;
+
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&lightPsoDesc, IID_PPV_ARGS(&mPSOs["lighting"])));
+
+	//
+	// PSO for Lighting pass(QUAD).
+	//
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC lightQUADPsoDesc = lightPsoDesc;
+	lightQUADPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
+	lightQUADPsoDesc.VS = { reinterpret_cast<BYTE*>(mShaders["lightingQUADVS"]->GetBufferPointer()),
+						mShaders["lightingQUADVS"]->GetBufferSize() };
+
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&lightQUADPsoDesc, IID_PPV_ARGS(&mPSOs["lightingQUAD"])));
+
+	//
+	// PSO for Lighting pass(Debug shape draw).
+	//
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC lightShapesPsoDesc = lightPsoDesc;
+	lightShapesPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+	lightShapesPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+	D3D12_DEPTH_STENCIL_DESC dsDesc = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+	dsDesc.DepthEnable = TRUE;
+	dsDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO; // можно отключить запись, но оставить тест
+	dsDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+	lightShapesPsoDesc.DepthStencilState = dsDesc;
+	lightShapesPsoDesc.PS = { reinterpret_cast<BYTE*>(mShaders["lightingPSDebug"]->GetBufferPointer()),
+						mShaders["lightingPSDebug"]->GetBufferSize() };
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&lightShapesPsoDesc, IID_PPV_ARGS(&mPSOs["lightingShapes"])));
+}
+
+void CGLAB::BuildFrameResources()
+{
+	for (int i = 0; i < gNumFrameResources; ++i)
+	{
+		mFrameResources.push_back(std::make_unique<FrameResource>(md3dDevice.Get(),
+			2, (UINT)mAllRitems.size(), (UINT)mResourceMgr->mMaterials.size(), (UINT)mLights.size()));
+	}
+}
+
+
+/*
+ROOT SIGNATURES
+*/
 void CGLAB::BuildRootSignature()
 {
 	CD3DX12_DESCRIPTOR_RANGE texTable0;
@@ -964,264 +1264,10 @@ void CGLAB::BuildLightingRootSignature()
 		IID_PPV_ARGS(mLightingRootSignature.GetAddressOf())));
 }
 
-void CGLAB::CreateRtvAndDsvDescriptorHeaps()
-{
-	// Add +6 RTV for cube render target.
-	D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc;
-	rtvHeapDesc.NumDescriptors = SwapChainBufferCount + 3; // +3 for GBuffer RTVs
-	rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
-	rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-	rtvHeapDesc.NodeMask = 0;
-	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(
-		&rtvHeapDesc, IID_PPV_ARGS(mRtvHeap.GetAddressOf())));
 
-	// Add +1 DSV for shadow map.
-	D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc;
-	dsvHeapDesc.NumDescriptors = 20 + 1; // MAX 20 lights +1 shadow map
-	dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
-	dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
-	dsvHeapDesc.NodeMask = 0;
-	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(
-		&dsvHeapDesc, IID_PPV_ARGS(mDsvHeap.GetAddressOf())));
-}
-
-void CGLAB::BuildShadersAndInputLayout()
-{
-	const D3D_SHADER_MACRO alphaTestDefines[] =
-	{
-		"ALPHA_TEST", "1",
-		NULL, NULL
-	};
-
-	mShaders["shadowVS"] = d3dUtil::CompileShader(L"Shaders\\Shadows.hlsl", nullptr, "VS", "vs_5_1");
-	mShaders["shadowOpaquePS"] = d3dUtil::CompileShader(L"Shaders\\Shadows.hlsl", nullptr, "PS", "ps_5_1");
-	mShaders["shadowAlphaTestedPS"] = d3dUtil::CompileShader(L"Shaders\\Shadows.hlsl", alphaTestDefines, "PS", "ps_5_1");
-
-	mShaders["debugVS"] = d3dUtil::CompileShader(L"Shaders\\ShadowDebug.hlsl", nullptr, "VS", "vs_5_1");
-	mShaders["debugPS"] = d3dUtil::CompileShader(L"Shaders\\ShadowDebug.hlsl", nullptr, "PS", "ps_5_1");
-
-	mShaders["skyVS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", nullptr, "VS", "vs_5_1");
-	mShaders["skyPS"] = d3dUtil::CompileShader(L"Shaders\\Sky.hlsl", nullptr, "PS", "ps_5_1");
-
-	mShaders["GPassVS"] = d3dUtil::CompileShader(L"Shaders\\GeometryPass.hlsl", nullptr, "VS", "vs_5_1");
-	mShaders["GPassPS"] = d3dUtil::CompileShader(L"Shaders\\GeometryPass.hlsl", nullptr, "PS", "ps_5_1");
-
-	mShaders["lightingVS"] = d3dUtil::CompileShader(L"Shaders\\LightingPass.hlsl", nullptr, "VS", "vs_5_1");
-	mShaders["lightingPS"] = d3dUtil::CompileShader(L"Shaders\\LightingPass.hlsl", nullptr, "PS", "ps_5_1");
-	mShaders["lightingPSDebug"] = d3dUtil::CompileShader(L"Shaders\\LightingPass.hlsl", nullptr, "PS_debug", "ps_5_1");
-	mShaders["lightingQUADVS"] = d3dUtil::CompileShader(L"Shaders\\LightingPass.hlsl", nullptr, "VS_QUAD", "vs_5_1");
-
-
-	mInputLayout =
-	{
-		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-		{ "NORMAL", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 12, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-		{ "TEXCOORD", 0, DXGI_FORMAT_R32G32_FLOAT, 0, 24, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-		{ "TANGENT", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 32, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
-	};
-}
-
-void CGLAB::BuildPSOs()
-{
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC opaquePsoDesc;
-
-	//
-	// PSO for opaque objects.
-	//
-	ZeroMemory(&opaquePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
-	opaquePsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
-	opaquePsoDesc.pRootSignature = mRootSignature.Get();
-	opaquePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-	opaquePsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
-	opaquePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-	opaquePsoDesc.SampleMask = UINT_MAX;
-	opaquePsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-	opaquePsoDesc.NumRenderTargets = 1;
-	opaquePsoDesc.RTVFormats[0] = mBackBufferFormat;
-	opaquePsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
-	opaquePsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
-	opaquePsoDesc.DSVFormat = mDepthStencilFormat;
-
-	//
-	// PSO for shadow map pass.
-	//
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC smapPsoDesc = opaquePsoDesc;
-	smapPsoDesc.RasterizerState.DepthBias = 100000;
-	smapPsoDesc.RasterizerState.DepthBiasClamp = 0.0f;
-	smapPsoDesc.RasterizerState.SlopeScaledDepthBias = 1.0f;
-	smapPsoDesc.pRootSignature = mShadowsRootSignature.Get();
-	smapPsoDesc.VS =
-	{
-		reinterpret_cast<BYTE*>(mShaders["shadowVS"]->GetBufferPointer()),
-		mShaders["shadowVS"]->GetBufferSize()
-	};
-	smapPsoDesc.PS =
-	{
-		reinterpret_cast<BYTE*>(mShaders["shadowOpaquePS"]->GetBufferPointer()),
-		mShaders["shadowOpaquePS"]->GetBufferSize()
-	};
-
-	// Shadow map pass does not have a render target.
-	smapPsoDesc.RTVFormats[0] = DXGI_FORMAT_UNKNOWN;
-	smapPsoDesc.NumRenderTargets = 0;
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&smapPsoDesc, IID_PPV_ARGS(&mPSOs["shadow_opaque"])));
-
-	//
-	// PSO for debug layer.
-	//
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC debugPsoDesc = opaquePsoDesc;
-	debugPsoDesc.pRootSignature = mRootSignature.Get();
-	debugPsoDesc.VS =
-	{
-		reinterpret_cast<BYTE*>(mShaders["debugVS"]->GetBufferPointer()),
-		mShaders["debugVS"]->GetBufferSize()
-	};
-	debugPsoDesc.PS =
-	{
-		reinterpret_cast<BYTE*>(mShaders["debugPS"]->GetBufferPointer()),
-		mShaders["debugPS"]->GetBufferSize()
-	};
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&debugPsoDesc, IID_PPV_ARGS(&mPSOs["debug"])));
-
-	//
-	// PSO for sky.
-	//
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC skyPsoDesc = opaquePsoDesc;
-
-	// The camera is inside the sky sphere, so just turn off culling.
-	skyPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
-
-	// Make sure the depth function is LESS_EQUAL and not just LESS.  
-	// Otherwise, the normalized depth values at z = 1 (NDC) will 
-	// fail the depth test if the depth buffer was cleared to 1.
-	skyPsoDesc.DepthStencilState.DepthEnable = true; // Включен!
-	skyPsoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
-	skyPsoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
-	skyPsoDesc.pRootSignature = mRootSignature.Get();
-	skyPsoDesc.VS =
-	{
-		reinterpret_cast<BYTE*>(mShaders["skyVS"]->GetBufferPointer()),
-		mShaders["skyVS"]->GetBufferSize()
-	};
-	skyPsoDesc.PS =
-	{
-		reinterpret_cast<BYTE*>(mShaders["skyPS"]->GetBufferPointer()),
-		mShaders["skyPS"]->GetBufferSize()
-	};
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skyPsoDesc, IID_PPV_ARGS(&mPSOs["sky"])));
-
-	//
-	// PSO for G-Buffer pass.
-	//
-
-	DXGI_FORMAT GBUFFER_FORMATS[3] = {
-		DXGI_FORMAT_R8G8B8A8_UNORM,      // RT0: Albedo + Roughness
-		DXGI_FORMAT_R16G16B16A16_FLOAT,  // RT1: Normal + Fresnel
-		DXGI_FORMAT_R32G32B32A32_FLOAT   // RT2: Position
-	};
-
-	//==========================================================
-	// PSO 1: G-Pass (Geometry Pass)
-	//==========================================================
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC gPassPsoDesc = opaquePsoDesc;
-
-	// 1. Shaders
-	gPassPsoDesc.VS = { reinterpret_cast<BYTE*>(mShaders["GPassVS"]->GetBufferPointer()), mShaders["GPassVS"]->GetBufferSize() };
-	gPassPsoDesc.PS = { reinterpret_cast<BYTE*>(mShaders["GPassPS"]->GetBufferPointer()), mShaders["GPassPS"]->GetBufferSize() };
-
-	// 2. Render Targets
-	gPassPsoDesc.NumRenderTargets = 3; // Мы пишем в 3 G-Buffer'а
-	gPassPsoDesc.RTVFormats[0] = GBUFFER_FORMATS[0];
-	gPassPsoDesc.RTVFormats[1] = GBUFFER_FORMATS[1];
-	gPassPsoDesc.RTVFormats[2] = GBUFFER_FORMATS[2];
-	gPassPsoDesc.RTVFormats[3] = DXGI_FORMAT_UNKNOWN; // Остальные не используются
-
-	// 3. Depth-Stencil State
-	// Глубину нужно писать, чтобы отсекать скрытую геометрию
-	gPassPsoDesc.DepthStencilState.DepthEnable = true;
-	gPassPsoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
-
-	// 4. Root Signature (используем старую, так как она содержит cbPerObject, gMaterialData и gTextureMaps)
-	gPassPsoDesc.pRootSignature = mGeometryRootSignature.Get();
-
-	// Создаем PSO для G-Pass
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&gPassPsoDesc, IID_PPV_ARGS(&mPSOs["GeometryPass"])));
-
-
-	// Lighting pass PSO
-
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC lightPsoDesc = {};
-	lightPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() }; // если используем SV_VertexID в шейдере, входного layout не нужно
-	lightPsoDesc.pRootSignature = mLightingRootSignature.Get(); // наша новая корнев. сигнатура для освещения
-	lightPsoDesc.VS = { reinterpret_cast<BYTE*>(mShaders["lightingVS"]->GetBufferPointer()),
-						mShaders["lightingVS"]->GetBufferSize() };
-	lightPsoDesc.PS = { reinterpret_cast<BYTE*>(mShaders["lightingPS"]->GetBufferPointer()),
-						mShaders["lightingPS"]->GetBufferSize() };
-	lightPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
-	lightPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_FRONT;
-
-	D3D12_RENDER_TARGET_BLEND_DESC rtBlendDesc = {};
-	rtBlendDesc.BlendEnable = TRUE;
-	rtBlendDesc.LogicOpEnable = FALSE;
-	rtBlendDesc.SrcBlend = D3D12_BLEND_ONE;          // Use the source color as-is
-	rtBlendDesc.DestBlend = D3D12_BLEND_ONE;          // Add it to the destination color
-	rtBlendDesc.BlendOp = D3D12_BLEND_OP_ADD;
-	rtBlendDesc.SrcBlendAlpha = D3D12_BLEND_ONE;      // Same for alpha
-	rtBlendDesc.DestBlendAlpha = D3D12_BLEND_ONE;
-	rtBlendDesc.BlendOpAlpha = D3D12_BLEND_OP_ADD;
-	rtBlendDesc.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
-
-	D3D12_BLEND_DESC blendDesc = {};
-	blendDesc.AlphaToCoverageEnable = FALSE;
-	blendDesc.IndependentBlendEnable = FALSE; // Only one render target, so set to FALSE
-	blendDesc.RenderTarget[0] = rtBlendDesc;
-	lightPsoDesc.BlendState = blendDesc;
-	lightPsoDesc.SampleMask = UINT_MAX;
-	lightPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-	lightPsoDesc.NumRenderTargets = 1;                   // выводим один финальный цвет
-	lightPsoDesc.RTVFormats[0] = mBackBufferFormat;      // формат экрана (обычно DXGI_FORMAT_R8G8B8A8_UNORM)
-	lightPsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
-	lightPsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
-	lightPsoDesc.DSVFormat = mDepthStencilFormat; // не используем буфер глубины
-
-	//D3D12_DEPTH_STENCIL_DESC dsDesc = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-	//dsDesc.DepthEnable = TRUE;
-	//dsDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO; // можно отключить запись, но оставить тест
-	//dsDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
-	//lightPsoDesc.DepthStencilState = dsDesc;
-
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&lightPsoDesc, IID_PPV_ARGS(&mPSOs["lighting"])));
-
-	// Lighting(QUAD) pass PSO
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC lightQUADPsoDesc = lightPsoDesc;
-	lightQUADPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
-	lightQUADPsoDesc.VS = { reinterpret_cast<BYTE*>(mShaders["lightingQUADVS"]->GetBufferPointer()),
-						mShaders["lightingQUADVS"]->GetBufferSize() };
-
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&lightQUADPsoDesc, IID_PPV_ARGS(&mPSOs["lightingQUAD"])));
-
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC lightShapesPsoDesc = lightPsoDesc;
-	lightShapesPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
-	lightShapesPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
-	D3D12_DEPTH_STENCIL_DESC dsDesc = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
-	dsDesc.DepthEnable = TRUE;
-	dsDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO; // можно отключить запись, но оставить тест
-	dsDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
-	lightShapesPsoDesc.DepthStencilState = dsDesc;
-	lightShapesPsoDesc.PS = { reinterpret_cast<BYTE*>(mShaders["lightingPSDebug"]->GetBufferPointer()),
-						mShaders["lightingPSDebug"]->GetBufferSize() };
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&lightShapesPsoDesc, IID_PPV_ARGS(&mPSOs["lightingShapes"])));
-}
-
-void CGLAB::BuildFrameResources()
-{
-	for (int i = 0; i < gNumFrameResources; ++i)
-	{
-		mFrameResources.push_back(std::make_unique<FrameResource>(md3dDevice.Get(),
-			2, (UINT)mAllRitems.size(), (UINT)mResourceMgr->mMaterials.size(), (UINT)mLights.size()));
-	}
-}
-
+/*
+LIGHT INITIALIZATION
+*/
 void CGLAB::CreatePointLight(XMFLOAT3 pos, XMFLOAT3 color, float faloff_start, float faloff_end, float strength)
 {
 	std::unique_ptr<Light>light = std::make_unique<Light>();
@@ -1236,6 +1282,7 @@ void CGLAB::CreatePointLight(XMFLOAT3 pos, XMFLOAT3 color, float faloff_start, f
 	XMStoreFloat4x4(&light->gWorld, XMMatrixTranspose(world));
 	mLights.push_back(std::move(light));
 }
+
 void CGLAB::CreateSpotLight(XMFLOAT3 pos, XMFLOAT3 rot, XMFLOAT3 color, float faloff_start, float faloff_end, float strength, float spotpower)
 {
 	std::unique_ptr<Light>light = std::make_unique<Light>();
@@ -1254,7 +1301,6 @@ void CGLAB::CreateSpotLight(XMFLOAT3 pos, XMFLOAT3 rot, XMFLOAT3 color, float fa
 	
 	mLights.push_back(std::move(light));
 }
-
 
 void CGLAB::BuildLights()
 {
@@ -1306,6 +1352,9 @@ void CGLAB::SetLightShapes()
 	}
 }
 
+/*
+RENDER ITEMS
+*/
 void CGLAB::CreateRenderItem(std::string name, std::string materialname, int RItemLayer, XMMATRIX& scaling, XMMATRIX& rotation, XMMATRIX& translation, XMMATRIX texTransform, std::string drawargs)
 {
 	if (drawargs == "")
@@ -1346,40 +1395,11 @@ void CGLAB::CreateRenderItem(std::string name, std::string materialname, int RIt
 
 void CGLAB::BuildRenderItems()
 {
-	CreateRenderItem("shapeGeo", "sky", (int)RenderLayer::Sky,
-		XMMatrixScaling(5000.0f, 5000.0f, 5000.0f),
-		XMMatrixIdentity(),
-		XMMatrixIdentity(),
-		XMMatrixIdentity(),
-		"sphere");
-
-	CreateRenderItem("skullGeo", "skullMat", (int)RenderLayer::Opaque,
-		XMMatrixScaling(2.0f, 2.0f, 2.0f),
-		XMMatrixIdentity(),
-		XMMatrixTranslation(0.0f, 3.0f, 0.0f),
-		XMMatrixScaling(1.0f, 1.0f, 1.0f),
-		"Group5732");
-
-	CreateRenderItem("shapeGeo", "bricks0", (int)RenderLayer::Debug,
-		XMMatrixScaling(1.0f, 1.0f, 1.0f),
-		XMMatrixIdentity(),
-		XMMatrixIdentity(),
-		XMMatrixIdentity(),
-		"quad");
-
-	CreateRenderItem("shapeGeo", "bricks0", (int)RenderLayer::Opaque,
-		XMMatrixScaling(2.0f, 1.0f, 2.0f),
-		XMMatrixIdentity(),
-		XMMatrixTranslation(0.0f, 0.5f, 0.0f),
-		XMMatrixScaling(1.0f, 0.5f, 1.0f),
-		"box");
-
-	CreateRenderItem("shapeGeo", "tile0", (int)RenderLayer::Opaque,
-		XMMatrixScaling(1.0f, 1.0f, 1.0f),
-		XMMatrixIdentity(),
-		XMMatrixIdentity(),
-		XMMatrixScaling(8.0f, 8.0f, 1.0f),
-		"grid");
+	CreateRenderItem("shapeGeo", "sky", (int)RenderLayer::Sky,XMMatrixScaling(5000.0f, 5000.0f, 5000.0f),XMMatrixIdentity(),XMMatrixIdentity(),XMMatrixIdentity(),"sphere");
+	CreateRenderItem("skullGeo", "skullMat", (int)RenderLayer::Opaque,XMMatrixScaling(2.0f, 2.0f, 2.0f),XMMatrixIdentity(),XMMatrixTranslation(0.0f, 3.0f, 0.0f),XMMatrixScaling(1.0f, 1.0f, 1.0f),"Group5732");
+	CreateRenderItem("shapeGeo", "bricks0", (int)RenderLayer::Debug,XMMatrixScaling(1.0f, 1.0f, 1.0f),XMMatrixIdentity(),XMMatrixIdentity(),XMMatrixIdentity(),"quad");
+	CreateRenderItem("shapeGeo", "bricks0", (int)RenderLayer::Opaque,XMMatrixScaling(2.0f, 1.0f, 2.0f),XMMatrixIdentity(),XMMatrixTranslation(0.0f, 0.5f, 0.0f),XMMatrixScaling(1.0f, 0.5f, 1.0f),"box");
+	CreateRenderItem("shapeGeo", "tile0", (int)RenderLayer::Opaque,XMMatrixScaling(1.0f, 1.0f, 1.0f),XMMatrixIdentity(),XMMatrixIdentity(),XMMatrixScaling(8.0f, 8.0f, 1.0f),"grid");
 
 	XMMATRIX scaleIdentity = XMMatrixScaling(1.0f, 1.0f, 1.0f);
 	XMMATRIX rotIdentity = XMMatrixIdentity();
@@ -1395,37 +1415,11 @@ void CGLAB::BuildRenderItems()
 		XMMATRIX leftSphereTranslation = XMMatrixTranslation(-5.0f, 3.5f, -10.0f + i * 5.0f);
 		XMMATRIX rightSphereTranslation = XMMatrixTranslation(+5.0f, 3.5f, -10.0f + i * 5.0f);
 
-		// 1. Left Cylinder (bricks0)
-		CreateRenderItem(geoName, "bricks0", layer,
-			scaleIdentity,
-			rotIdentity,
-			leftCylTranslation,
-			brickTexTransform,
-			"cylinder");
-
-		// 2. Right Cylinder (bricks0)
-		CreateRenderItem(geoName, "bricks0", layer,
-			scaleIdentity,
-			rotIdentity,
-			rightCylTranslation,
-			brickTexTransform,
-			"cylinder");
-
-		// 3. Left Sphere (mirror0)
-		CreateRenderItem(geoName, "mirror0", layer,
-			scaleIdentity,
-			rotIdentity,
-			leftSphereTranslation,
-			texIdentity,
-			"sphere");
-
-		// 4. Right Sphere (mirror0)
-		CreateRenderItem(geoName, "mirror0", layer,
-			scaleIdentity,
-			rotIdentity,
-			rightSphereTranslation,
-			texIdentity,
-			"sphere");
+		CreateRenderItem(geoName, "bricks0", layer,scaleIdentity,rotIdentity,leftCylTranslation,brickTexTransform,"cylinder");
+		CreateRenderItem(geoName, "bricks0", layer,scaleIdentity,rotIdentity,rightCylTranslation,brickTexTransform,"cylinder");
+		
+		CreateRenderItem(geoName, "mirror0", layer,scaleIdentity,rotIdentity,leftSphereTranslation,texIdentity,"sphere");
+		CreateRenderItem(geoName, "mirror0", layer,scaleIdentity,rotIdentity,rightSphereTranslation,texIdentity,"sphere");
 	}
 }
 
@@ -1498,37 +1492,9 @@ void CGLAB::DrawSceneToShadowMap()
 
 }
 
-void CGLAB::ImguiInit()
-{
-	D3D12_DESCRIPTOR_HEAP_DESC imGuiHeapDesc = {};
-	imGuiHeapDesc.NumDescriptors = 1;
-	imGuiHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-	imGuiHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
-	imGuiHeapDesc.NodeMask = 0; // Or the appropriate node mask if you have multiple GPUs
-	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&imGuiHeapDesc, IID_PPV_ARGS(&m_ImGuiSrvDescriptorHeap)));
-
-	// INITIALIZE IMGUI ////////////////////
-	IMGUI_CHECKVERSION();
-	ImGui::CreateContext();
-	ImGui::StyleColorsDark();
-	////////////////////////////////////////
-	ImGuiIO& io = ImGui::GetIO();
-	io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;     // Enable Keyboard Controls
-	io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;      // Enable Gamepad Controls
-
-	ImGui_ImplDX12_InitInfo init_info = {};
-	init_info.Device = md3dDevice.Get();
-	init_info.CommandQueue = mCommandQueue.Get();
-	init_info.NumFramesInFlight = gNumFrameResources;
-	init_info.RTVFormat = DXGI_FORMAT_R8G8B8A8_UNORM; // Or your render target format.
-	init_info.DSVFormat = DXGI_FORMAT_UNKNOWN;
-	init_info.SrvDescriptorHeap = m_ImGuiSrvDescriptorHeap.Get();
-	init_info.LegacySingleSrvCpuDescriptor = m_ImGuiSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart();
-	init_info.LegacySingleSrvGpuDescriptor = m_ImGuiSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart();
-	ImGui_ImplWin32_Init(mhMainWnd);
-	ImGui_ImplDX12_Init(&init_info);
-}
-
+/*
+OTHER
+*/
 std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> CGLAB::GetStaticSamplers()
 {
 	// Applications usually only need a handful of samplers.  So just define them all up front
@@ -1599,27 +1565,3 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> CGLAB::GetStaticSamplers()
 	};
 }
 
-void CGLAB::BuildGBuffer()
-{
-	mGBuffer = std::make_unique<GBuffer>(md3dDevice.Get(), mClientWidth, mClientHeight);
-
-	CD3DX12_CPU_DESCRIPTOR_HANDLE srvHeapHandle(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
-	srvHeapHandle.Offset(gBufferSrvOffset, mCbvSrvUavDescriptorSize);
-
-	// 2. Получаем GPU хендл (для биндинга в шейдер) и ТОЖЕ оборачиваем в CD3DX12
-	CD3DX12_GPU_DESCRIPTOR_HANDLE gpuSrvHandle(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
-	gpuSrvHandle.Offset(gBufferSrvOffset, mCbvSrvUavDescriptorSize); // Теперь Offset работает!
-
-	// 3. RTV хендл тоже оборачиваем
-	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHeapHandle(mRtvHeap->GetCPUDescriptorHandleForHeapStart());
-	rtvHeapHandle.Offset(SwapChainBufferCount, mRtvDescriptorSize);
-
-	// 4. Вызываем функцию (она теперь примет аргументы, так как типы совпадают)
-	mGBuffer->BuildDescriptors(
-		srvHeapHandle,
-		gpuSrvHandle,
-		rtvHeapHandle,
-		mCbvSrvUavDescriptorSize,
-		mRtvDescriptorSize
-	);
-}
