@@ -88,18 +88,22 @@ private:
     void AnimateMaterials(const GameTimer& gt);
     void UpdateObjectCBs(const GameTimer& gt);
     void UpdateMaterialBuffer(const GameTimer& gt);
-    void UpdateShadowTransform(const GameTimer& gt);
     void UpdateMainPassCB(const GameTimer& gt);
-    void UpdateShadowPassCB(const GameTimer& gt);
+    void UpdateLightCBs(const GameTimer& gt);
     void ImguiUpdate();
 
     void BuildRootSignature();
+    void BuildShadowsRootSignature();
     void BuildGeometryRootSignature();
     void BuildLightingRootSignature();
     void BuildDescriptorHeaps();
     void BuildShadersAndInputLayout();
     void BuildPSOs();
     void BuildFrameResources();
+    void CreatePointLight(XMFLOAT3 pos, XMFLOAT3 color, float faloff_start, float faloff_end, float strength);
+    void CreateSpotLight(XMFLOAT3 pos, XMFLOAT3 rot, XMFLOAT3 color, float faloff_start, float faloff_end, float strength, float spotpower);
+    void BuildLights();
+    void SetLightShapes();
     void CreateRenderItem(std::string name, std::string materialname, int RItemLayer, XMMATRIX& scaling, XMMATRIX& rotation, XMMATRIX& translation, XMMATRIX texTransform = XMMatrixIdentity(), std::string drawargs = "");
     void BuildRenderItems();
     void DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vector<RenderItem*>& ritems);
@@ -139,11 +143,8 @@ private:
     CD3DX12_GPU_DESCRIPTOR_HANDLE mNullSrv;
 
     PassConstants mMainPassCB;  // index 0 of pass cbuffer.
-    PassConstants mShadowPassCB;// index 1 of pass cbuffer.
 
     Camera mCamera;
-
-    std::unique_ptr<ShadowMap> mShadowMap;
 
     DirectX::BoundingSphere mSceneBounds;
 
@@ -167,11 +168,13 @@ private:
     int gBufferSrvOffset; 
     // Новый RootSignature для Light Pass
     ComPtr<ID3D12RootSignature> mGeometryRootSignature;
+    ComPtr<ID3D12RootSignature> mShadowsRootSignature;
     ComPtr<ID3D12RootSignature> mLightingRootSignature;
 
     // Методы
-    void BuildDeferredRootSignature();
 	void BuildGBuffer();
 
     ComPtr<ID3D12DescriptorHeap> m_ImGuiSrvDescriptorHeap; // Member variable
+
+    std::vector<std::unique_ptr<Light>>mLights;
 };

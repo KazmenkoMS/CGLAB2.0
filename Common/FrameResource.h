@@ -33,12 +33,6 @@ struct PassConstants
     float DeltaTime = 0.0f;
 
     DirectX::XMFLOAT4 AmbientLight = { 0.0f, 0.0f, 0.0f, 1.0f };
-
-    // Indices [0, NUM_DIR_LIGHTS) are directional lights;
-    // indices [NUM_DIR_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHTS) are point lights;
-    // indices [NUM_DIR_LIGHTS+NUM_POINT_LIGHTS, NUM_DIR_LIGHTS+NUM_POINT_LIGHT+NUM_SPOT_LIGHTS)
-    // are spot lights for a maximum of MaxLights per object.
-    Light Lights[MaxLights];
 };
 
 struct MaterialData
@@ -56,6 +50,23 @@ struct MaterialData
 	UINT MaterialPad2;
 };
 
+struct LightConstants
+{
+    DirectX::XMFLOAT3 Color;
+    float FalloffStart;                        
+    DirectX::XMFLOAT3 Direction;
+    float FalloffEnd;                           
+    DirectX::XMFLOAT3 Position; 
+    float SpotPower;                            // spot light only
+    int type;
+    float Strength;
+    int CastsShadows;
+    int isDebugOn;
+    DirectX::XMFLOAT4X4 gWorld;
+    DirectX::XMFLOAT4X4 LightViewProj;
+    int enablePCF;
+    int pcf_level;
+};
 struct Vertex
 {
     DirectX::XMFLOAT3 Pos;
@@ -70,7 +81,7 @@ struct FrameResource
 {
 public:
     
-    FrameResource(ID3D12Device* device, UINT passCount, UINT objectCount, UINT materialCount);
+    FrameResource(ID3D12Device* device, UINT passCount, UINT objectCount, UINT materialCount, UINT lightcount);
     FrameResource(const FrameResource& rhs) = delete;
     FrameResource& operator=(const FrameResource& rhs) = delete;
     ~FrameResource();
@@ -83,7 +94,8 @@ public:
     // that reference it.  So each frame needs their own cbuffers.
     std::unique_ptr<UploadBuffer<PassConstants>> PassCB = nullptr;
     std::unique_ptr<UploadBuffer<ObjectConstants>> ObjectCB = nullptr;
-
+    std::unique_ptr<UploadBuffer<LightConstants>> LightCB = nullptr;
+    std::unique_ptr<UploadBuffer<ShadowConstants>> ShadowCB = nullptr;
 	std::unique_ptr<UploadBuffer<MaterialData>> MaterialBuffer = nullptr;
 
     // Fence value to mark commands up to this fence point.  This lets us

@@ -5,6 +5,7 @@
 #include "imgui_impl_win32.h"
 #include "imgui.h"
 
+static int imguiID = 0;
 const int gNumFrameResources = 3;
 
 // Main application entry point.
@@ -63,19 +64,20 @@ bool CGLAB::Initialize()
 
 	mCamera.SetPosition(0.0f, 2.0f, -15.0f);
 
-	mShadowMap = std::make_unique<ShadowMap>(
-		md3dDevice.Get(), mConfig.ShadowMapHeight, mConfig.ShadowMapWidth);
+	
 	mGeomMgr = std::make_unique<GeometryManager>();
 	mResourceMgr = std::make_unique<ResourceManager>();
 	mResourceMgr->Init(md3dDevice.Get(), mCommandList.Get());
 	mResourceMgr->LoadTextures();
-	//LoadTextures();
-	BuildRootSignature();
-	BuildDescriptorHeaps();
-	BuildShadersAndInputLayout();
-	
 	mGeomMgr->BuildBasicGeometry(md3dDevice.Get(), mCommandList.Get());
 	mGeomMgr->BuildGeometryFromFile(md3dDevice.Get(), mCommandList.Get(), "Models/skull.obj", "skullGeo");
+	//LoadTextures();
+	BuildRootSignature();
+	BuildShadowsRootSignature();
+	BuildDescriptorHeaps();
+	BuildShadersAndInputLayout();
+	BuildLights();
+	SetLightShapes();
 	BuildGeometryRootSignature();
 	BuildLightingRootSignature();
 	BuildGBuffer();
@@ -106,6 +108,7 @@ void CGLAB::OnResize()
 
 void CGLAB::Update(const GameTimer& gt)
 {
+	imguiID = 0;
 	OnKeyboardInput(gt);
 
 	// Cycle through the circular frame resource array.
@@ -139,9 +142,8 @@ void CGLAB::Update(const GameTimer& gt)
 	AnimateMaterials(gt);
 	UpdateObjectCBs(gt);
 	UpdateMaterialBuffer(gt);
-	UpdateShadowTransform(gt);
 	UpdateMainPassCB(gt);
-	UpdateShadowPassCB(gt);
+	UpdateLightCBs(gt);
 	ImguiUpdate();
 }
 
@@ -153,7 +155,7 @@ void CGLAB::Draw(const GameTimer& gt)
 
 	// Сбрасываем список команд, используя PSO для теней
 	ThrowIfFailed(mCommandList->Reset(cmdListAlloc.Get(), mPSOs["shadow_opaque"].Get()));
-
+	mCommandList->SetGraphicsRootSignature(mShadowsRootSignature.Get());
 	// Устанавливаем кучу дескрипторов (один раз за кадр)
 	ID3D12DescriptorHeap* descriptorHeaps[] = { mSrvDescriptorHeap.Get() };
 	mCommandList->SetDescriptorHeaps(_countof(descriptorHeaps), descriptorHeaps);
@@ -164,19 +166,11 @@ void CGLAB::Draw(const GameTimer& gt)
 	// ==========================================
 	// 1. Shadow Pass
 	// ==========================================
-	
-	mCommandList->SetGraphicsRootSignature(mRootSignature.Get());
 
 	// !!! ИСПРАВЛЕНИЕ 1: Привязываем Material Buffer (Slot 2) !!!
 	// Без этого шейдер читает мусор и GPU виснет
-	mCommandList->SetGraphicsRootShaderResourceView(2, matBuffer->GetGPUVirtualAddress());
+	mCommandList->SetGraphicsRootShaderResourceView(3, matBuffer->GetGPUVirtualAddress());
 
-	// !!! ИСПРАВЛЕНИЕ 2: Привязываем Текстуры (Slot 4) !!!
-	// Main Root Signature имеет 2 таблицы (Slot 3 и Slot 4). 
-	// Slot 4 - это unbounded array текстур. Даже если тени их не используют, 
-	// лучше привязать кучу, чтобы избежать неопределенного поведения.
-	mCommandList->SetGraphicsRootDescriptorTable(3, mNullSrv); // Slot 3
-	mCommandList->SetGraphicsRootDescriptorTable(4, mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart()); // Slot 4
 
 	// Выполняем Shadow Pass
 	DrawSceneToShadowMap();
@@ -240,24 +234,47 @@ void CGLAB::Draw(const GameTimer& gt)
 	mCommandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::Black, 0, nullptr);
 
 	mCommandList->SetGraphicsRootSignature(mLightingRootSignature.Get());
-	mCommandList->SetPipelineState(mPSOs["LightingPass"].Get());
 
 	// 0: PassCB
 	mCommandList->SetGraphicsRootConstantBufferView(0, passCB->GetGPUVirtualAddress());
 
-	// 1: Global Textures Table (CubeMap, ShadowMap)
-	CD3DX12_GPU_DESCRIPTOR_HANDLE globalTexStart(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
-	globalTexStart.Offset(mResourceMgr->TexOffsets["skyCubeMap"], mCbvSrvUavDescriptorSize);
-	mCommandList->SetGraphicsRootDescriptorTable(1, globalTexStart);
+	// 0.1: Light CB
+	auto lightCB = mCurrFrameResource->LightCB->Resource();
+	UINT lightCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(LightConstants));
+
+
+	CD3DX12_GPU_DESCRIPTOR_HANDLE skyCubeMap(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+	skyCubeMap.Offset(mResourceMgr->TexOffsets["skyCubeMap"], mCbvSrvUavDescriptorSize);
+	mCommandList->SetGraphicsRootDescriptorTable(2, skyCubeMap);
+
+	
 
 	// 2: GBuffer Table
-	mCommandList->SetGraphicsRootDescriptorTable(2, mGBuffer->Srv());
+	mCommandList->SetGraphicsRootDescriptorTable(4, mGBuffer->Srv());
 
-	// Рисуем Full Screen Quad
-	mCommandList->IASetVertexBuffers(0, 0, nullptr);
-	mCommandList->IASetIndexBuffer(nullptr);
-	mCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-	mCommandList->DrawInstanced(3, 1, 0, 0);
+	for (auto& light : mLights)
+	{
+		auto lightCB = mCurrFrameResource->LightCB->Resource();
+		mCommandList->IASetVertexBuffers(0, 1, &mGeomMgr->mGeometries["shapeGeo"]->VertexBufferView());
+		mCommandList->IASetIndexBuffer(&mGeomMgr->mGeometries["shapeGeo"]->IndexBufferView());
+
+		D3D12_GPU_VIRTUAL_ADDRESS lightCBAddress = lightCB->GetGPUVirtualAddress() + light->LightCBIndex * lightCBByteSize;
+		mCommandList->SetGraphicsRootConstantBufferView(1, lightCBAddress); // b1
+		if (light->type == 2 || light->type == 3)
+			mCommandList->SetGraphicsRootDescriptorTable(3, light->ShadowMap->Srv()); // because only directional and spot lights have shadows
+		// if directional or ambient -> rendering full screen quad
+		if (light->type == 0 || light->type == 2)
+		{
+			mCommandList->SetPipelineState(mPSOs["lightingQUAD"].Get());
+			mCommandList->DrawInstanced(3, 1, 0, 0);
+		}
+		else
+		{
+			mCommandList->SetPipelineState(mPSOs["lighting"].Get());
+			mCommandList->DrawIndexedInstanced(light->ShapeGeo.IndexCount, 1, light->ShapeGeo.StartIndexLocation, light->ShapeGeo.BaseVertexLocation, 0);
+		}
+	}
+
 
 	// ==========================================
 	// 4. Skybox Pass
@@ -286,6 +303,25 @@ void CGLAB::Draw(const GameTimer& gt)
 
 	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Sky]);
 
+	// 0: PassCB
+	mCommandList->SetGraphicsRootConstantBufferView(0, passCB->GetGPUVirtualAddress());
+	// drawing light shapes
+	mCommandList->SetPipelineState(mPSOs["lightingShapes"].Get());
+	for (auto& light : mLights)
+	{
+		if (light->type != 0 && light->type != 2 && light->isDebugOn == 1)
+		{
+			auto lightCB = mCurrFrameResource->LightCB->Resource();
+			mCommandList->IASetVertexBuffers(0, 1, &mGeomMgr->mGeometries["shapeGeo"]->VertexBufferView());
+			mCommandList->IASetIndexBuffer(&mGeomMgr->mGeometries["shapeGeo"]->IndexBufferView());
+
+			D3D12_GPU_VIRTUAL_ADDRESS lightCBAddress = lightCB->GetGPUVirtualAddress() + light->LightCBIndex * lightCBByteSize;
+			mCommandList->SetGraphicsRootConstantBufferView(1, lightCBAddress);
+
+			mCommandList->DrawIndexedInstanced(light->ShapeGeo.IndexCount, 1, light->ShapeGeo.StartIndexLocation, light->ShapeGeo.BaseVertexLocation, 0);
+		}
+
+	}
 	// ==========================================
 	// 6. IMGUI Render
 	// ==========================================
@@ -429,47 +465,6 @@ void CGLAB::UpdateMaterialBuffer(const GameTimer& gt)
 		}
 	}
 }
-
-void CGLAB::UpdateShadowTransform(const GameTimer& gt)
-{
-	// Only the first "main" light casts a shadow.
-	XMVECTOR lightDir = XMLoadFloat3(&mMainPassCB.Lights[0].Direction);
-	XMVECTOR lightPos = -2.0f * mSceneBounds.Radius * lightDir;
-	XMVECTOR targetPos = XMLoadFloat3(&mSceneBounds.Center);
-	XMVECTOR lightUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
-	XMMATRIX lightView = XMMatrixLookAtLH(lightPos, targetPos, lightUp);
-
-	XMStoreFloat3(&mLightPosW, lightPos);
-
-	// Transform bounding sphere to light space.
-	XMFLOAT3 sphereCenterLS;
-	XMStoreFloat3(&sphereCenterLS, XMVector3TransformCoord(targetPos, lightView));
-
-	// Ortho frustum in light space encloses scene.
-	float l = sphereCenterLS.x - mSceneBounds.Radius;
-	float b = sphereCenterLS.y - mSceneBounds.Radius;
-	float n = sphereCenterLS.z - mSceneBounds.Radius;
-	float r = sphereCenterLS.x + mSceneBounds.Radius;
-	float t = sphereCenterLS.y + mSceneBounds.Radius;
-	float f = sphereCenterLS.z + mSceneBounds.Radius;
-
-	mLightNearZ = n;
-	mLightFarZ = f;
-	XMMATRIX lightProj = XMMatrixOrthographicOffCenterLH(l, r, b, t, n, f);
-
-	// Transform NDC space [-1,+1]^2 to texture space [0,1]^2
-	XMMATRIX T(
-		0.5f, 0.0f, 0.0f, 0.0f,
-		0.0f, -0.5f, 0.0f, 0.0f,
-		0.0f, 0.0f, 1.0f, 0.0f,
-		0.5f, 0.5f, 0.0f, 1.0f);
-
-	XMMATRIX S = lightView * lightProj * T;
-	XMStoreFloat4x4(&mLightView, lightView);
-	XMStoreFloat4x4(&mLightProj, lightProj);
-	XMStoreFloat4x4(&mShadowTransform, S);
-}
-
 void CGLAB::UpdateMainPassCB(const GameTimer& gt)
 {
 	XMMATRIX view = mCamera.GetView();
@@ -502,33 +497,107 @@ void CGLAB::UpdateMainPassCB(const GameTimer& gt)
 	currPassCB->CopyData(0, mMainPassCB);
 }
 
-void CGLAB::UpdateShadowPassCB(const GameTimer& gt)
+
+void CGLAB::UpdateLightCBs(const GameTimer& gt)
 {
-	XMMATRIX view = XMLoadFloat4x4(&mLightView);
-	XMMATRIX proj = XMLoadFloat4x4(&mLightProj);
 
-	XMMATRIX viewProj = XMMatrixMultiply(view, proj);
-	XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
-	XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(proj), proj);
-	XMMATRIX invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
+	auto currLightCB = mCurrFrameResource->LightCB.get();
+	auto currShadowCB = mCurrFrameResource->ShadowCB.get();
+	int lId = 0;
+	for (auto& l : mLights)
+	{
+		LightConstants lConst;
+		ShadowConstants sConst;
+		if (l->type == 1)
+		{
+			XMStoreFloat4x4(&l->gWorld, XMMatrixTranspose(XMMatrixScaling(l->FalloffEnd * 2, l->FalloffEnd * 2, l->FalloffEnd * 2) * XMMatrixTranslation(l->Position.x, l->Position.y, l->Position.z)));
+		}
+		if (l->type == 3)
+		{
 
-	UINT w = mShadowMap->Width();
-	UINT h = mShadowMap->Height();
+			XMStoreFloat4x4(&l->gWorld, XMMatrixTranspose(XMMatrixScaling(l->FalloffEnd * 4 / 3, l->FalloffEnd, l->FalloffEnd * 4 / 3) * XMMatrixTranslation(0, -l->FalloffEnd / 2, 0) *
+				XMMatrixRotationRollPitchYaw(XMConvertToRadians(l->Rotation.x), XMConvertToRadians(l->Rotation.y), XMConvertToRadians(l->Rotation.z)) *
+				XMMatrixTranslation(l->Position.x, l->Position.y, l->Position.z)));
+			XMFLOAT3 d(0, -1, 0);
+			XMVECTOR v = XMLoadFloat3(&d);
 
-	XMStoreFloat4x4(&mShadowPassCB.View, XMMatrixTranspose(view));
-	XMStoreFloat4x4(&mShadowPassCB.InvView, XMMatrixTranspose(invView));
-	XMStoreFloat4x4(&mShadowPassCB.Proj, XMMatrixTranspose(proj));
-	XMStoreFloat4x4(&mShadowPassCB.InvProj, XMMatrixTranspose(invProj));
-	XMStoreFloat4x4(&mShadowPassCB.ViewProj, XMMatrixTranspose(viewProj));
-	XMStoreFloat4x4(&mShadowPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
-	mShadowPassCB.EyePosW = mLightPosW;
-	mShadowPassCB.RenderTargetSize = XMFLOAT2((float)w, (float)h);
-	mShadowPassCB.InvRenderTargetSize = XMFLOAT2(1.0f / w, 1.0f / h);
-	mShadowPassCB.NearZ = mLightNearZ;
-	mShadowPassCB.FarZ = mLightFarZ;
+			v = XMVector3TransformNormal(v, XMMatrixRotationRollPitchYaw(XMConvertToRadians(l->Rotation.x), XMConvertToRadians(l->Rotation.y), XMConvertToRadians(l->Rotation.z)));
 
-	auto currPassCB = mCurrFrameResource->PassCB.get();
-	currPassCB->CopyData(1, mShadowPassCB);
+			XMStoreFloat3(&l->Direction, v);
+			d = XMFLOAT3(-1, 0, 0);
+			v = XMLoadFloat3(&d);
+			v = XMVector3TransformNormal(v, XMMatrixRotationRollPitchYaw(XMConvertToRadians(l->Rotation.x), XMConvertToRadians(l->Rotation.y), XMConvertToRadians(l->Rotation.z)));
+			l->LightUp = v;
+		}
+		if (l->type == 3 && l->CastsShadows) // Directional Light
+		{
+			// Create an orthographic projection for the directional light->
+		// The volume needs to encompass the scene or relevant parts.
+		// This is a simplified approach; Cascaded Shadow Maps (CSM) are better for large scenes.
+			XMFLOAT3 Pos(l->Position);
+			XMVECTOR lightPos = XMLoadFloat3(&Pos);
+			XMVECTOR lightDir = XMLoadFloat3(&l->Direction);
+			XMVECTOR targetPos = lightPos + lightDir; // Look at origin or scene center
+			XMVECTOR lightUp = l->LightUp;
+
+			XMMATRIX lightView = XMMatrixLookAtLH(lightPos, targetPos, lightUp);
+			XMStoreFloat4x4(&l->LightView, lightView);
+
+			XMMATRIX lightProj = XMMatrixPerspectiveFovLH(0.5f * MathHelper::Pi, 1.0f, 1.0f, 1000.0f);
+			XMStoreFloat4x4(&l->LightProj, lightProj);
+			XMStoreFloat4x4(&l->LightViewProj, XMMatrixTranspose(XMMatrixMultiply(lightView, lightProj)));
+		}
+		else if (l->type == 2 && l->CastsShadows)
+		{
+			// Only the first "main" light casts a shadow.
+			XMVECTOR lightDir = XMLoadFloat3(&l->Direction);
+			XMVECTOR lightPos = -2.0f * mSceneBounds.Radius * lightDir;
+			XMVECTOR targetPos = XMLoadFloat3(&mSceneBounds.Center);
+			XMVECTOR lightUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
+			XMMATRIX lightView = XMMatrixLookAtLH(lightPos, targetPos, lightUp);
+
+			XMStoreFloat3(&mLightPosW, lightPos);
+
+			// Transform bounding sphere to light space.
+			XMFLOAT3 sphereCenterLS;
+			XMStoreFloat3(&sphereCenterLS, XMVector3TransformCoord(targetPos, lightView));
+
+			// Ortho frustum in light space encloses scene.
+			float le = sphereCenterLS.x - mSceneBounds.Radius;
+			float b = sphereCenterLS.y - mSceneBounds.Radius;
+			float n = sphereCenterLS.z - mSceneBounds.Radius;
+			float r = sphereCenterLS.x + mSceneBounds.Radius;
+			float t = sphereCenterLS.y + mSceneBounds.Radius;
+			float f = sphereCenterLS.z + mSceneBounds.Radius;
+
+			mLightNearZ = n;
+			mLightFarZ = f;
+			XMMATRIX lightProj = XMMatrixOrthographicOffCenterLH(le, r, b, t, n, f);
+
+			XMStoreFloat4x4(&l->LightView, lightView);
+			XMStoreFloat4x4(&l->LightProj, lightProj);
+			XMStoreFloat4x4(&l->LightViewProj, XMMatrixTranspose(XMMatrixMultiply(lightView, lightProj)));
+
+		}
+		lConst.Color = l->Color;
+		lConst.FalloffStart = l->FalloffStart;
+		lConst.Direction = l->Direction;
+		lConst.FalloffEnd = l->FalloffEnd;
+		lConst.Position = l->Position;
+		lConst.SpotPower = l->SpotPower;
+		lConst.type = l->type;
+		lConst.Strength = l->Strength;
+		lConst.CastsShadows = l->CastsShadows;
+		lConst.isDebugOn = l->isDebugOn;
+		lConst.gWorld = l->gWorld;
+		lConst.LightViewProj = l->LightViewProj;
+		lConst.enablePCF = l->enablePCF;
+		lConst.pcf_level = l->pcf_level;
+		sConst.LightViewProj = l->LightViewProj;
+		currShadowCB->CopyData(l->LightCBIndex, sConst);
+		currLightCB->CopyData(l->LightCBIndex, lConst);
+		lId++;
+	}
 }
 
 void CGLAB::ImguiUpdate()
@@ -541,8 +610,85 @@ void CGLAB::ImguiUpdate()
 	{
 		if (ImGui::BeginTabItem("Lights"))
 		{
-			ImGui::ColorEdit3("Directional Light Color", (float*)&mMainPassCB.Lights[0].Strength);
-			ImGui::SliderFloat3("Directional Light Direction", (float*)&mMainPassCB.Lights[0].Direction, -1.0f, 1.0f);
+			int lId = 0;
+			for (auto& l : mLights)
+			{
+				if (l->type == 0)
+				{
+					std::string s = "\nAmbient Light " + std::to_string(lId);
+					ImGui::PushID(++imguiID);
+					ImGui::Text(s.c_str());
+					float* a[] = { &l->Position.x,&l->Position.y,&l->Position.z };
+					ImGui::ColorEdit3("Color", (float*)&l->Color);
+					ImGui::DragFloat("Strength", &l->Strength, 0.1f, 0, 100);
+
+					ImGui::PopID();
+					ImGui::Separator();
+				}
+				else if (l->type == 1)
+				{
+					std::string s = "\nPoint Light " + std::to_string(lId);
+					ImGui::PushID(++imguiID);
+					ImGui::Text(s.c_str());
+					float* a[] = { &l->Position.x,&l->Position.y,&l->Position.z };
+					ImGui::DragFloat3("Position", *a, 0.1f, -100, 100);
+					ImGui::ColorEdit3("Color", (float*)&l->Color);
+					ImGui::DragFloat("Strength", &l->Strength, 0.1f, 0, 100);
+					ImGui::DragFloat("FaloffStart", &l->FalloffStart, 0.1f, 1, l->FalloffEnd);
+					ImGui::DragFloat("FaloffEnd", &l->FalloffEnd, 0.1f, l->FalloffStart, 100);
+					bool b = l->isDebugOn;
+					ImGui::Checkbox("is Debug On", &b);
+					l->isDebugOn = b;
+					ImGui::PopID();
+					ImGui::Separator();
+				}
+				else if (l->type == 2)
+				{
+					std::string s = "\nDirectional Light " + std::to_string(lId);
+					ImGui::PushID(++imguiID);
+					ImGui::Text(s.c_str());
+					ImGui::SliderFloat3("Direction", (float*)&l->Direction, -1, 1);
+					ImGui::ColorEdit3("Color", (float*)&l->Color);
+					ImGui::DragFloat("Strength", &l->Strength, 0.1f, 0, 100);
+					bool b = l->CastsShadows;
+					ImGui::Checkbox("Cast Shadows", &b);
+					l->CastsShadows = b;
+					bool c = l->enablePCF;
+					ImGui::Checkbox("Enable PCF", &c);
+					l->enablePCF = c;
+					ImGui::DragInt("PCF level", &l->pcf_level, 1, 0, 100);
+					ImGui::PopID();
+					ImGui::Separator();
+
+				}
+				else if (l->type == 3)
+				{
+					std::string s = "\nSpot Light " + std::to_string(lId);
+					ImGui::PushID(++imguiID);
+					ImGui::Text(s.c_str());
+					float* a[] = { &l->Position.x,&l->Position.y,&l->Position.z };
+					ImGui::DragFloat3("Position", (float*)&l->Position, 0.1f, -100, 100);
+					ImGui::DragFloat3("Rotation", (float*)&l->Rotation, 0.1f, -180, 180);
+					ImGui::ColorEdit3("Color", (float*)&l->Color);
+					ImGui::DragFloat("Strength", &l->Strength, 0.1f, 0, 100);
+					ImGui::DragFloat("Faloff Start", &l->FalloffStart, 0.1f, 0, 100);
+					ImGui::DragFloat("Faloff End", &l->FalloffEnd, 0.1f, 0, 100);
+					ImGui::SliderFloat("Spot Power", &l->SpotPower, 0, 10);
+					ImGui::DragInt("PCF level", &l->pcf_level, 1, 0, 100);
+					bool c = l->enablePCF;
+					ImGui::Checkbox("Enable PCF", &c);
+					l->enablePCF = c;
+					bool b = l->CastsShadows;
+					ImGui::Checkbox("Cast Shadows", &b);
+					l->CastsShadows = b;
+					b = l->isDebugOn;
+					ImGui::Checkbox("is Debug On", &b);
+					l->isDebugOn = b;
+					ImGui::PopID();
+					ImGui::Separator();
+
+				}
+			}
 			ImGui::EndTabItem();
 		}
 		ImGui::EndTabBar();
@@ -630,10 +776,26 @@ void CGLAB::BuildDescriptorHeaps()
 	srvDesc.Texture2D.ResourceMinLODClamp = 0.0f;
 	md3dDevice->CreateShaderResourceView(nullptr, &srvDesc, nullSrv);
 
-	mShadowMap->BuildDescriptors(
-		CD3DX12_CPU_DESCRIPTOR_HANDLE(srvCpuStart, mResourceMgr->TexOffsets["shadow"], mCbvSrvUavDescriptorSize),
-		CD3DX12_GPU_DESCRIPTOR_HANDLE(srvGpuStart, mResourceMgr->TexOffsets["shadow"], mCbvSrvUavDescriptorSize),
-		CD3DX12_CPU_DESCRIPTOR_HANDLE(dsvCpuStart, 1, mDsvDescriptorSize));
+	nullSrv.Offset(1, mCbvSrvUavDescriptorSize);
+
+	int shadowsrvOffset = mResourceMgr->TexOffsets["nullCube"] + 2;
+
+	int i = 1;
+	for (auto& light : mLights)
+	{
+
+		if (light->type == 2 || light->type == 3)
+		{
+			light->ShadowMap->BuildDescriptors(
+				CD3DX12_CPU_DESCRIPTOR_HANDLE(srvCpuStart, shadowsrvOffset, mCbvSrvUavDescriptorSize),
+				CD3DX12_GPU_DESCRIPTOR_HANDLE(srvGpuStart, shadowsrvOffset, mCbvSrvUavDescriptorSize),
+				CD3DX12_CPU_DESCRIPTOR_HANDLE(dsvCpuStart, i+1, mDsvDescriptorSize));
+
+			i++;
+			shadowsrvOffset++;
+		}
+
+	}
 	gBufferSrvOffset = 50;
 
 }
@@ -683,6 +845,43 @@ void CGLAB::BuildRootSignature()
 		IID_PPV_ARGS(mRootSignature.GetAddressOf())));
 }
 
+void CGLAB::BuildShadowsRootSignature()
+{
+	// Root parameter can be a table, root descriptor or root constants.
+	CD3DX12_ROOT_PARAMETER slotRootParameter[4];
+
+	// Perfomance TIP: Order from most frequent to least frequent.
+	slotRootParameter[0].InitAsConstantBufferView(0);
+	slotRootParameter[1].InitAsConstantBufferView(1);
+	slotRootParameter[2].InitAsConstantBufferView(2);
+	slotRootParameter[3].InitAsShaderResourceView(0, 1);
+
+	auto staticSamplers = GetStaticSamplers();
+
+	// A root signature is an array of root parameters.
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(4, slotRootParameter,
+		(UINT)staticSamplers.size(), staticSamplers.data(),
+		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+	// create a root signature with a single slot which points to a descriptor range consisting of a single constant buffer
+	ComPtr<ID3DBlob> serializedRootSig = nullptr;
+	ComPtr<ID3DBlob> errorBlob = nullptr;
+	HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1,
+		serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+	if (errorBlob != nullptr)
+	{
+		::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+	}
+	ThrowIfFailed(hr);
+
+	ThrowIfFailed(md3dDevice->CreateRootSignature(
+		0,
+		serializedRootSig->GetBufferPointer(),
+		serializedRootSig->GetBufferSize(),
+		IID_PPV_ARGS(mShadowsRootSignature.GetAddressOf())));
+}
+
 void CGLAB::BuildGeometryRootSignature()
 {
 	CD3DX12_DESCRIPTOR_RANGE texTable1;
@@ -726,42 +925,27 @@ void CGLAB::BuildGeometryRootSignature()
 
 void CGLAB::BuildLightingRootSignature()
 {
-	// *** 1. ТАБЛИЦЫ ДЕСКРИПТОРОВ ***
 
-	// Таблица 1: G-Buffer SRVs (t2, t3, t4)
 	CD3DX12_DESCRIPTOR_RANGE gBufferTable;
-	gBufferTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 2); // Binds t2, t3, t4
+	gBufferTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 2); 
 
-	// Таблица 2: Global Textures (CubeMap t0, ShadowMap t1)
-	// Текстуры, которые не являются G-Buffer'ом, но нужны для Light Pass
-	CD3DX12_DESCRIPTOR_RANGE globalTexTable[2];
+	CD3DX12_DESCRIPTOR_RANGE cubeMap;
+	cubeMap.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+	CD3DX12_DESCRIPTOR_RANGE shadowMap;
+	shadowMap.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1);
 
-	// t0: CubeMap
-	globalTexTable[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
-	// t1: ShadowMap
-	globalTexTable[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1);
+	CD3DX12_ROOT_PARAMETER slotRootParameter[5];
 
-	// *** 2. КОРНЕВЫЕ ПАРАМЕТРЫ ***
+	slotRootParameter[0].InitAsConstantBufferView(0); // pass CB
+	slotRootParameter[1].InitAsConstantBufferView(1); // light pass CB
+	slotRootParameter[2].InitAsDescriptorTable(1, &cubeMap);
+	slotRootParameter[3].InitAsDescriptorTable(1, &shadowMap);
+	slotRootParameter[4].InitAsDescriptorTable(1, &gBufferTable);
 
-	CD3DX12_ROOT_PARAMETER slotRootParameter[3];
-
-	// 0: CBV PassConstants (b1) - Прямой Root CBV
-	slotRootParameter[0].InitAsConstantBufferView(0);
-
-	// 1: Global Textures Table (t0, t1) - Таблица, содержащая CubeMap и ShadowMap
-	slotRootParameter[1].InitAsDescriptorTable(2, globalTexTable);
-
-	// 2: GBuffer Table (t3, t4, t5) - Таблица, содержащая G-Buffer
-	slotRootParameter[2].InitAsDescriptorTable(1, &gBufferTable);
-
-	// ... (Остальная часть кода, включая статические семплеры, остается прежней) ...
-
-	// Обратите внимание: теперь у нас 3 Root Parameters, а не 4!
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(3, slotRootParameter,
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(5, slotRootParameter,
 		(UINT)GetStaticSamplers().size(), GetStaticSamplers().data(),
 		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
-	// create a root signature with a single slot which points to a descriptor range consisting of a single constant buffer
 	ComPtr<ID3DBlob> serializedRootSig = nullptr;
 	ComPtr<ID3DBlob> errorBlob = nullptr;
 	HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1,
@@ -793,7 +977,7 @@ void CGLAB::CreateRtvAndDsvDescriptorHeaps()
 
 	// Add +1 DSV for shadow map.
 	D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc;
-	dsvHeapDesc.NumDescriptors = 2;
+	dsvHeapDesc.NumDescriptors = 20 + 1; // MAX 20 lights +1 shadow map
 	dsvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
 	dsvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 	dsvHeapDesc.NodeMask = 0;
@@ -809,9 +993,6 @@ void CGLAB::BuildShadersAndInputLayout()
 		NULL, NULL
 	};
 
-	mShaders["standardVS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr, "VS", "vs_5_1");
-	mShaders["opaquePS"] = d3dUtil::CompileShader(L"Shaders\\Default.hlsl", nullptr, "PS", "ps_5_1");
-
 	mShaders["shadowVS"] = d3dUtil::CompileShader(L"Shaders\\Shadows.hlsl", nullptr, "VS", "vs_5_1");
 	mShaders["shadowOpaquePS"] = d3dUtil::CompileShader(L"Shaders\\Shadows.hlsl", nullptr, "PS", "ps_5_1");
 	mShaders["shadowAlphaTestedPS"] = d3dUtil::CompileShader(L"Shaders\\Shadows.hlsl", alphaTestDefines, "PS", "ps_5_1");
@@ -825,8 +1006,10 @@ void CGLAB::BuildShadersAndInputLayout()
 	mShaders["GPassVS"] = d3dUtil::CompileShader(L"Shaders\\GeometryPass.hlsl", nullptr, "VS", "vs_5_1");
 	mShaders["GPassPS"] = d3dUtil::CompileShader(L"Shaders\\GeometryPass.hlsl", nullptr, "PS", "ps_5_1");
 
-	mShaders["DeferredLightVS"] = d3dUtil::CompileShader(L"Shaders\\LightingPass.hlsl", nullptr, "VS", "vs_5_1");
-	mShaders["DeferredLightPS"] = d3dUtil::CompileShader(L"Shaders\\LightingPass.hlsl", nullptr, "PS", "ps_5_1");
+	mShaders["lightingVS"] = d3dUtil::CompileShader(L"Shaders\\LightingPass.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["lightingPS"] = d3dUtil::CompileShader(L"Shaders\\LightingPass.hlsl", nullptr, "PS", "ps_5_1");
+	mShaders["lightingPSDebug"] = d3dUtil::CompileShader(L"Shaders\\LightingPass.hlsl", nullptr, "PS_debug", "ps_5_1");
+	mShaders["lightingQUADVS"] = d3dUtil::CompileShader(L"Shaders\\LightingPass.hlsl", nullptr, "VS_QUAD", "vs_5_1");
 
 
 	mInputLayout =
@@ -848,16 +1031,6 @@ void CGLAB::BuildPSOs()
 	ZeroMemory(&opaquePsoDesc, sizeof(D3D12_GRAPHICS_PIPELINE_STATE_DESC));
 	opaquePsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() };
 	opaquePsoDesc.pRootSignature = mRootSignature.Get();
-	opaquePsoDesc.VS =
-	{
-		reinterpret_cast<BYTE*>(mShaders["standardVS"]->GetBufferPointer()),
-		mShaders["standardVS"]->GetBufferSize()
-	};
-	opaquePsoDesc.PS =
-	{
-		reinterpret_cast<BYTE*>(mShaders["opaquePS"]->GetBufferPointer()),
-		mShaders["opaquePS"]->GetBufferSize()
-	};
 	opaquePsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
 	opaquePsoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
 	opaquePsoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
@@ -868,7 +1041,6 @@ void CGLAB::BuildPSOs()
 	opaquePsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
 	opaquePsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
 	opaquePsoDesc.DSVFormat = mDepthStencilFormat;
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&opaquePsoDesc, IID_PPV_ARGS(&mPSOs["opaque"])));
 
 	//
 	// PSO for shadow map pass.
@@ -877,7 +1049,7 @@ void CGLAB::BuildPSOs()
 	smapPsoDesc.RasterizerState.DepthBias = 100000;
 	smapPsoDesc.RasterizerState.DepthBiasClamp = 0.0f;
 	smapPsoDesc.RasterizerState.SlopeScaledDepthBias = 1.0f;
-	smapPsoDesc.pRootSignature = mRootSignature.Get();
+	smapPsoDesc.pRootSignature = mShadowsRootSignature.Get();
 	smapPsoDesc.VS =
 	{
 		reinterpret_cast<BYTE*>(mShaders["shadowVS"]->GetBufferPointer()),
@@ -976,38 +1148,69 @@ void CGLAB::BuildPSOs()
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&gPassPsoDesc, IID_PPV_ARGS(&mPSOs["GeometryPass"])));
 
 
-	//==========================================================
-	// PSO 2: Light Pass (Deferred Shading Pass)
-	//==========================================================
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC lightPassPsoDesc = opaquePsoDesc;
+	// Lighting pass PSO
 
-	// 1. Shaders
-	lightPassPsoDesc.VS = { reinterpret_cast<BYTE*>(mShaders["DeferredLightVS"]->GetBufferPointer()), mShaders["DeferredLightVS"]->GetBufferSize() };
-	lightPassPsoDesc.PS = { reinterpret_cast<BYTE*>(mShaders["DeferredLightPS"]->GetBufferPointer()), mShaders["DeferredLightPS"]->GetBufferSize() };
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC lightPsoDesc = {};
+	lightPsoDesc.InputLayout = { mInputLayout.data(), (UINT)mInputLayout.size() }; // если используем SV_VertexID в шейдере, входного layout не нужно
+	lightPsoDesc.pRootSignature = mLightingRootSignature.Get(); // наша новая корнев. сигнатура для освещения
+	lightPsoDesc.VS = { reinterpret_cast<BYTE*>(mShaders["lightingVS"]->GetBufferPointer()),
+						mShaders["lightingVS"]->GetBufferSize() };
+	lightPsoDesc.PS = { reinterpret_cast<BYTE*>(mShaders["lightingPS"]->GetBufferPointer()),
+						mShaders["lightingPS"]->GetBufferSize() };
+	lightPsoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+	lightPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_FRONT;
 
-	// 2. Input Layout
-	lightPassPsoDesc.InputLayout = { nullptr, 0 }; // <--- ВАЖНО: Вершины генерируются в VS по SV_VertexID, Input Layout не нужен.
+	D3D12_RENDER_TARGET_BLEND_DESC rtBlendDesc = {};
+	rtBlendDesc.BlendEnable = TRUE;
+	rtBlendDesc.LogicOpEnable = FALSE;
+	rtBlendDesc.SrcBlend = D3D12_BLEND_ONE;          // Use the source color as-is
+	rtBlendDesc.DestBlend = D3D12_BLEND_ONE;          // Add it to the destination color
+	rtBlendDesc.BlendOp = D3D12_BLEND_OP_ADD;
+	rtBlendDesc.SrcBlendAlpha = D3D12_BLEND_ONE;      // Same for alpha
+	rtBlendDesc.DestBlendAlpha = D3D12_BLEND_ONE;
+	rtBlendDesc.BlendOpAlpha = D3D12_BLEND_OP_ADD;
+	rtBlendDesc.RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
 
-	// 3. Render Targets
-	lightPassPsoDesc.NumRenderTargets = 1;
-	lightPassPsoDesc.RTVFormats[0] = mBackBufferFormat; // Пишем в Back Buffer
+	D3D12_BLEND_DESC blendDesc = {};
+	blendDesc.AlphaToCoverageEnable = FALSE;
+	blendDesc.IndependentBlendEnable = FALSE; // Only one render target, so set to FALSE
+	blendDesc.RenderTarget[0] = rtBlendDesc;
+	lightPsoDesc.BlendState = blendDesc;
+	lightPsoDesc.SampleMask = UINT_MAX;
+	lightPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	lightPsoDesc.NumRenderTargets = 1;                   // выводим один финальный цвет
+	lightPsoDesc.RTVFormats[0] = mBackBufferFormat;      // формат экрана (обычно DXGI_FORMAT_R8G8B8A8_UNORM)
+	lightPsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
+	lightPsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
+	lightPsoDesc.DSVFormat = mDepthStencilFormat; // не используем буфер глубины
 
-	// 4. Depth-Stencil State
-	// В Light Pass мы просто рисуем полноэкранный квадрат. Глубину ни читать, ни писать не нужно.
-	lightPassPsoDesc.DepthStencilState.DepthEnable = false;
-	lightPassPsoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
+	//D3D12_DEPTH_STENCIL_DESC dsDesc = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+	//dsDesc.DepthEnable = TRUE;
+	//dsDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO; // можно отключить запись, но оставить тест
+	//dsDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+	//lightPsoDesc.DepthStencilState = dsDesc;
 
-	// 5. Blending State (обычно для Light Pass используем аддитивный блендинг, но для первого прохода оставляем Opaque)
-	// Поскольку мы очищаем буфер до черного, используем стандартный Opaque (D3D12_BLEND_DESC по умолчанию)
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&lightPsoDesc, IID_PPV_ARGS(&mPSOs["lighting"])));
 
-	// 6. Primitive Topology
-	lightPassPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+	// Lighting(QUAD) pass PSO
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC lightQUADPsoDesc = lightPsoDesc;
+	lightQUADPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
+	lightQUADPsoDesc.VS = { reinterpret_cast<BYTE*>(mShaders["lightingQUADVS"]->GetBufferPointer()),
+						mShaders["lightingQUADVS"]->GetBufferSize() };
 
-	// 7. Root Signature (используем новую сигнатуру Light Pass, чтобы забиндить G-Buffer как текстуры)
-	lightPassPsoDesc.pRootSignature = mLightingRootSignature.Get();
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&lightQUADPsoDesc, IID_PPV_ARGS(&mPSOs["lightingQUAD"])));
 
-	// Создаем PSO для Light Pass
-	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&lightPassPsoDesc, IID_PPV_ARGS(&mPSOs["LightingPass"])));
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC lightShapesPsoDesc = lightPsoDesc;
+	lightShapesPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+	lightShapesPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+	D3D12_DEPTH_STENCIL_DESC dsDesc = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+	dsDesc.DepthEnable = TRUE;
+	dsDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO; // можно отключить запись, но оставить тест
+	dsDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
+	lightShapesPsoDesc.DepthStencilState = dsDesc;
+	lightShapesPsoDesc.PS = { reinterpret_cast<BYTE*>(mShaders["lightingPSDebug"]->GetBufferPointer()),
+						mShaders["lightingPSDebug"]->GetBufferSize() };
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&lightShapesPsoDesc, IID_PPV_ARGS(&mPSOs["lightingShapes"])));
 }
 
 void CGLAB::BuildFrameResources()
@@ -1015,7 +1218,91 @@ void CGLAB::BuildFrameResources()
 	for (int i = 0; i < gNumFrameResources; ++i)
 	{
 		mFrameResources.push_back(std::make_unique<FrameResource>(md3dDevice.Get(),
-			2, (UINT)mAllRitems.size(), (UINT)mResourceMgr->mMaterials.size()));
+			2, (UINT)mAllRitems.size(), (UINT)mResourceMgr->mMaterials.size(), (UINT)mLights.size()));
+	}
+}
+
+void CGLAB::CreatePointLight(XMFLOAT3 pos, XMFLOAT3 color, float faloff_start, float faloff_end, float strength)
+{
+	std::unique_ptr<Light>light = std::make_unique<Light>();
+	light->LightCBIndex = static_cast<int>(mLights.size());
+
+	light->Position = pos;
+	light->Color = color;
+	light->FalloffStart = faloff_start;
+	light->FalloffEnd = faloff_end;
+	light->type = 1;
+	auto& world = XMMatrixScaling(faloff_end * 2, faloff_end * 2, faloff_end * 2) * XMMatrixTranslation(pos.x, pos.y, pos.z);
+	XMStoreFloat4x4(&light->gWorld, XMMatrixTranspose(world));
+	mLights.push_back(std::move(light));
+}
+void CGLAB::CreateSpotLight(XMFLOAT3 pos, XMFLOAT3 rot, XMFLOAT3 color, float faloff_start, float faloff_end, float strength, float spotpower)
+{
+	std::unique_ptr<Light>light = std::make_unique<Light>();
+	light->LightCBIndex = static_cast<int>(mLights.size());
+
+	light->Position = pos;
+	light->Color = color;
+	light->FalloffStart = faloff_start;
+	light->FalloffEnd = faloff_end;
+	light->Rotation = rot;
+	light->LightUp = XMVectorSet(0, 1, 0, 0);
+	light->type = 3;
+	light->Strength = strength;
+	light->SpotPower = spotpower;
+	light->ShadowMap = std::make_unique<ShadowMap>(md3dDevice.Get(), mConfig.ShadowMapHeight, mConfig.ShadowMapWidth);
+	
+	mLights.push_back(std::move(light));
+}
+
+
+void CGLAB::BuildLights()
+{
+	// ambient
+	std::unique_ptr<Light>ambient = std::make_unique<Light>();
+	ambient->LightCBIndex = static_cast<int>(mLights.size());
+	ambient->Position = { 3.0f, 0.0f, 3.0f };
+	ambient->Color = { 1,1,1 }; // need only x
+	ambient->Strength = 0.5;
+	ambient->type = 0;
+	XMStoreFloat4x4(&ambient->gWorld, XMMatrixTranspose(XMMatrixTranslation(0, 0, 0) * XMMatrixScaling(1000, 1000, 1000)));
+	mLights.push_back(std::move(ambient));
+
+	// directional
+	std::unique_ptr<Light>dir = std::make_unique<Light>();
+	dir->LightCBIndex = static_cast<int>(mLights.size());
+	dir->Position = { 0,20,0 };
+	dir->Direction = { -1, -1, 0 };
+	dir->Color = { 1,1,1 };
+	dir->Strength = 1;
+	dir->type = 2;
+	dir->enablePCF = 1;
+	dir->LightUp = XMVectorSet(0, 0, 1, 0);
+	auto& world = XMMatrixScaling(1, 1, 1);
+	dir->ShadowMap = std::make_unique<ShadowMap>(md3dDevice.Get(), mConfig.ShadowMapHeight, mConfig.ShadowMapWidth);
+	XMStoreFloat4x4(&dir->gWorld, XMMatrixTranspose(world));
+	mLights.push_back(std::move(dir));
+
+	// other
+	CreatePointLight({ -3,3,0 }, { 4,0,0 }, 1, 5, 1);
+	CreatePointLight({ 3,3,0 }, { 0,0,4 }, 1, 5, 1);
+	CreateSpotLight({ -5,3,30 }, { 0,0,-90 }, { 1,1,1 }, 1, 30, 6, 1);
+}
+
+void CGLAB::SetLightShapes()
+{
+	for (auto& light : mLights)
+	{
+
+		switch (light->type)
+		{
+		case 1:
+			light->ShapeGeo = mGeomMgr->mGeometries["shapeGeo"]->DrawArgs["sphere"];
+			break;
+		case 3:
+			light->ShapeGeo = mGeomMgr->mGeometries["shapeGeo"]->DrawArgs["box"];
+			break;
+		}
 	}
 }
 
@@ -1167,36 +1454,48 @@ void CGLAB::DrawRenderItems(ID3D12GraphicsCommandList* cmdList, const std::vecto
 
 void CGLAB::DrawSceneToShadowMap()
 {
-	mCommandList->RSSetViewports(1, &mShadowMap->Viewport());
-	mCommandList->RSSetScissorRects(1, &mShadowMap->ScissorRect());
 
-	// Change to DEPTH_WRITE.
-	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap->Resource(),
-		D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_DEPTH_WRITE));
+	for (auto& light : mLights)
+	{
 
-	UINT passCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(PassConstants));
+		if (light->type == 2 || light->type == 3)
+		{
+			if (light->CastsShadows)
+			{
+				mCommandList->RSSetViewports(1, &light->ShadowMap->Viewport());
+				mCommandList->RSSetScissorRects(1, &light->ShadowMap->ScissorRect());
+				mCommandList->SetGraphicsRootSignature(mShadowsRootSignature.Get());
+				mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(light->ShadowMap->Resource(),
+					D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_DEPTH_WRITE));
 
-	// Clear the back buffer and depth buffer.
-	mCommandList->ClearDepthStencilView(mShadowMap->Dsv(),
-		D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
+				UINT passCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(PassConstants));
+				UINT shadowCBByteSize = d3dUtil::CalcConstantBufferByteSize(sizeof(ShadowConstants));
 
-	// Set null render target because we are only going to draw to
-	// depth buffer.  Setting a null render target will disable color writes.
-	// Note the active PSO also must specify a render target count of 0.
-	mCommandList->OMSetRenderTargets(0, nullptr, false, &mShadowMap->Dsv());
+				// Clear the back buffer and depth buffer.
+				mCommandList->ClearDepthStencilView(light->ShadowMap->Dsv(),
+					D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 
-	// Bind the pass constant buffer for the shadow map pass.
-	auto passCB = mCurrFrameResource->PassCB->Resource();
-	D3D12_GPU_VIRTUAL_ADDRESS passCBAddress = passCB->GetGPUVirtualAddress() + 1 * passCBByteSize;
-	mCommandList->SetGraphicsRootConstantBufferView(1, passCBAddress);
+				// Set null render target because we are only going to draw to
+				// depth buffer.  Setting a null render target will disable color writes.
+				// Note the active PSO also must specify a render target count of 0.
+				mCommandList->OMSetRenderTargets(0, nullptr, false, &light->ShadowMap->Dsv());
 
-	mCommandList->SetPipelineState(mPSOs["shadow_opaque"].Get());
+				// Bind the pass constant buffer for the shadow map pass.
+				auto passCB = mCurrFrameResource->PassCB->Resource();
+				mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
+				auto shadowCB = mCurrFrameResource->ShadowCB->Resource();
+				mCommandList->SetGraphicsRootConstantBufferView(2, shadowCB->GetGPUVirtualAddress() + light->LightCBIndex * shadowCBByteSize);
+				mCommandList->SetPipelineState(mPSOs["shadow_opaque"].Get());
 
-	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
+				DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Opaque]);
 
-	// Change back to GENERIC_READ so we can read the texture in a shader.
-	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(mShadowMap->Resource(),
-		D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_GENERIC_READ));
+				// Change back to GENERIC_READ so we can read the texture in a shader.
+				mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(light->ShadowMap->Resource(),
+					D3D12_RESOURCE_STATE_DEPTH_WRITE, D3D12_RESOURCE_STATE_GENERIC_READ));
+			}
+		}
+	}
+
 }
 
 void CGLAB::ImguiInit()
