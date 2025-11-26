@@ -164,20 +164,6 @@ void CGLAB::Update(const GameTimer& gt)
 		CloseHandle(eventHandle);
 	}
 
-	//
-	// Animate the lights (and hence shadows).
-	//
-
-	mLightRotationAngle += 0.1f * gt.DeltaTime();
-
-	XMMATRIX R = XMMatrixRotationY(mLightRotationAngle);
-	for (int i = 0; i < 3; ++i)
-	{
-		XMFLOAT3 a(1, -1, 0);
-		XMVECTOR lightDir = XMLoadFloat3(&a);
-		XMStoreFloat3(&mConfig.RotatedLightDirections[i], lightDir);
-	}
-
 	AnimateMaterials(gt);
 	UpdateObjectCBs(gt);
 	UpdateMaterialBuffer(gt);
@@ -488,7 +474,6 @@ void CGLAB::UpdateMainPassCB(const GameTimer& gt)
 	XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(proj), proj);
 	XMMATRIX invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
 
-	XMMATRIX shadowTransform = XMLoadFloat4x4(&mShadowTransform);
 
 	XMStoreFloat4x4(&mMainPassCB.View, XMMatrixTranspose(view));
 	XMStoreFloat4x4(&mMainPassCB.InvView, XMMatrixTranspose(invView));
@@ -496,7 +481,6 @@ void CGLAB::UpdateMainPassCB(const GameTimer& gt)
 	XMStoreFloat4x4(&mMainPassCB.InvProj, XMMatrixTranspose(invProj));
 	XMStoreFloat4x4(&mMainPassCB.ViewProj, XMMatrixTranspose(viewProj));
 	XMStoreFloat4x4(&mMainPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
-	XMStoreFloat4x4(&mMainPassCB.ShadowTransform, XMMatrixTranspose(shadowTransform));
 	mMainPassCB.EyePosW = mCamera.GetPosition3f();
 	mMainPassCB.RenderTargetSize = XMFLOAT2((float)mClientWidth, (float)mClientHeight);
 	mMainPassCB.InvRenderTargetSize = XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
@@ -592,7 +576,6 @@ void CGLAB::UpdateLightCBs(const GameTimer& gt)
 			XMVECTOR lightUp = XMVectorSet(0.0f, 1.0f, 0.0f, 0.0f);
 			XMMATRIX lightView = XMMatrixLookAtLH(lightPos, targetPos, lightUp);
 
-			XMStoreFloat3(&mLightPosW, lightPos);
 
 			// Transform bounding sphere to light space.
 			XMFLOAT3 sphereCenterLS;
@@ -606,8 +589,6 @@ void CGLAB::UpdateLightCBs(const GameTimer& gt)
 			float t = sphereCenterLS.y + mSceneBounds.Radius;
 			float f = sphereCenterLS.z + mSceneBounds.Radius;
 
-			mLightNearZ = n;
-			mLightFarZ = f;
 			XMMATRIX lightProj = XMMatrixOrthographicOffCenterLH(le, r, b, t, n, f);
 
 			XMStoreFloat4x4(&l->LightView, lightView);

@@ -133,55 +133,38 @@ private:
     std::unordered_map<std::string, ComPtr<ID3D12PipelineState>> mPSOs;
     std::vector<D3D12_INPUT_ELEMENT_DESC> mInputLayout;
 
-    // ==========================================================
-    // 7. МЕНЕДЖЕРЫ РЕСУРСОВ И КУЧИ
-    // ==========================================================
-
+    /*
+	RESOURCE MANAGERS AND DESCRIPTOR HEAPS
+    */
     std::unique_ptr<ResourceManager> mResourceMgr;
     std::unique_ptr<GeometryManager> mGeomMgr;
 
-    ComPtr<ID3D12DescriptorHeap> mSrvDescriptorHeap = nullptr; // Общая SRV/CBV/UAV куча
-    ComPtr<ID3D12DescriptorHeap> m_ImGuiSrvDescriptorHeap; // Куча для ImGui
+    ComPtr<ID3D12DescriptorHeap> mSrvDescriptorHeap = nullptr; 
+    ComPtr<ID3D12DescriptorHeap> m_ImGuiSrvDescriptorHeap; 
     CD3DX12_GPU_DESCRIPTOR_HANDLE mNullSrv;
-    int gBufferSrvOffset; // Смещение для SRV G-Buffer
+    int gBufferSrvOffset; // Gbuffer start offset
 
-    // ==========================================================
-    // 8. СЦЕНА И ОБЪЕКТЫ
-    // ==========================================================
-
+    /*
+    SCENE AND OBJECTS
+    */
     Camera mCamera;
     DirectX::BoundingSphere mSceneBounds;
-
     std::vector<std::unique_ptr<RenderItem>> mAllRitems;
     std::vector<RenderItem*> mRitemLayer[(int)RenderLayer::Count];
+    PassConstants mMainPassCB; 
 
-    PassConstants mMainPassCB; // Константы для основного прохода
-
-    // ==========================================================
-    // 9. ОТЛОЖЕННЫЙ РЕНДЕРИНГ (GBUFFER)
-    // ==========================================================
-
+    /*
+    DEFERRED RENDERING
+    */
     std::unique_ptr<GBuffer> mGBuffer;
 
-    // ==========================================================
-    // 10. СВЕТ И ТЕНИ (LIGHTS & SHADOWS)
-    // ==========================================================
-
+    /*
+    LIGHT AND SHADOWS
+    */
     std::vector<std::unique_ptr<Light>> mLights;
 
-    // Параметры Shadow Map
-    float mLightNearZ = 0.0f;
-    float mLightFarZ = 0.0f;
-    XMFLOAT3 mLightPosW;
-    XMFLOAT4X4 mLightView = MathHelper::Identity4x4();
-    XMFLOAT4X4 mLightProj = MathHelper::Identity4x4();
-    XMFLOAT4X4 mShadowTransform = MathHelper::Identity4x4();
-
-    float mLightRotationAngle = 0.0f; // Угол поворота для симуляции движения
-
-    // ==========================================================
-    // 11. ВВОД
-    // ==========================================================
-
+    /*
+    INPUT
+    */
     POINT mLastMousePos;
 };
