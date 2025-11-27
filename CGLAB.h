@@ -181,7 +181,6 @@ private:
 	std::unique_ptr<ShaderTexture> mPrevTexture;
 	std::unique_ptr<ShaderTexture> mCurrentTexture;
 	std::unique_ptr<ShaderTexture> mJitteredTexture;
-	std::unique_ptr<ShaderTexture> mPositionOld;
 	std::unique_ptr<ShaderTexture> mVelocityTexture;
     bool useTaa = true;
 };

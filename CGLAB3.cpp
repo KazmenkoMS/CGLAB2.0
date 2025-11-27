@@ -88,7 +88,6 @@ bool CGLAB::Initialize()
 	mPrevTexture = std::make_unique<ShaderTexture>(md3dDevice.Get(), mClientWidth, mClientHeight);
 	mCurrentTexture = std::make_unique<ShaderTexture>(md3dDevice.Get(), mClientWidth, mClientHeight);
 	mJitteredTexture = std::make_unique<ShaderTexture>(md3dDevice.Get(), mClientWidth, mClientHeight);
-	mPositionOld = std::make_unique<ShaderTexture>(md3dDevice.Get(), mClientWidth, mClientHeight);
 	mVelocityTexture = std::make_unique<ShaderTexture>(md3dDevice.Get(), mClientWidth, mClientHeight);
 	BuildRenderItems();
 	BuildFrameResources();
@@ -150,6 +149,11 @@ void CGLAB::OnResize()
 	D3DApp::OnResize();
 	BuildDescriptorHeaps();
 	BuildGBuffer();
+
+	mPrevTexture = std::make_unique<ShaderTexture>(md3dDevice.Get(), mClientWidth, mClientHeight);
+	mCurrentTexture = std::make_unique<ShaderTexture>(md3dDevice.Get(), mClientWidth, mClientHeight);
+	mJitteredTexture = std::make_unique<ShaderTexture>(md3dDevice.Get(), mClientWidth, mClientHeight);
+	mVelocityTexture = std::make_unique<ShaderTexture>(md3dDevice.Get(), mClientWidth, mClientHeight);
 	BuildTAATextures();
 	mCamera.SetLens(mConfig.CameraFovY, AspectRatio(), mConfig.CameraNearZ, mConfig.CameraFarZ);
 }
@@ -539,8 +543,11 @@ void CGLAB::UpdateMainPassCB(const GameTimer& gt)
 	XMMATRIX view = mCamera.GetView();
 	XMMATRIX proj = mCamera.GetProj();
 	XMMATRIX proj_jittered = proj;
-	proj_jittered.r[2].m128_f32[0] += jitters[frameIndex].x;
-	proj_jittered.r[2].m128_f32[1] += jitters[frameIndex].y;
+	if (useTaa)
+	{
+		proj_jittered.r[2].m128_f32[0] += jitters[frameIndex].x;
+		proj_jittered.r[2].m128_f32[1] += jitters[frameIndex].y;
+	}
 
 	XMMATRIX viewProj = XMMatrixMultiply(view, proj);
 	XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
@@ -811,7 +818,7 @@ void CGLAB::BuildDescriptorHeaps()
 	// Create the SRV heap.
 	//
 	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-	srvHeapDesc.NumDescriptors = 50 + 3 + 3 + 2;
+	srvHeapDesc.NumDescriptors = 50 + 3 + 3 + 1;
 	srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 	srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvDescriptorHeap)));
@@ -905,7 +912,7 @@ void CGLAB::CreateRtvAndDsvDescriptorHeaps()
 {
 	// Add +6 RTV for cube render target.
 	D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc;
-	rtvHeapDesc.NumDescriptors = SwapChainBufferCount + 3 + 3 + 2; // +3 for GBuffer RTVs + 3 for prev/current/jittered  frame RTV + 2 for velocity textures(old/new)
+	rtvHeapDesc.NumDescriptors = SwapChainBufferCount + 3 + 3 + 1; // +3 for GBuffer RTVs + 3 for prev/current/jittered  frame RTV + 2 for velocity texture
 	rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
 	rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 	rtvHeapDesc.NodeMask = 0;
@@ -992,26 +999,12 @@ void CGLAB::BuildTAATextures()
 		mRtvDescriptorSize
 	);
 
-	CD3DX12_CPU_DESCRIPTOR_HANDLE srvHeapHandle3(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
-	srvHeapHandle3.Offset(gBufferSrvOffset + 6, mCbvSrvUavDescriptorSize);
-	CD3DX12_GPU_DESCRIPTOR_HANDLE gpuSrvHandle3(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
-	gpuSrvHandle3.Offset(gBufferSrvOffset + 6, mCbvSrvUavDescriptorSize);
-	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHeapHandle3(mRtvHeap->GetCPUDescriptorHandleForHeapStart());
-	rtvHeapHandle3.Offset(8, mRtvDescriptorSize);
-	mPositionOld->BuildDescriptors(
-		srvHeapHandle3,
-		gpuSrvHandle3,
-		rtvHeapHandle3,
-		mCbvSrvUavDescriptorSize,
-		mRtvDescriptorSize
-	);
-
 	CD3DX12_CPU_DESCRIPTOR_HANDLE srvHeapHandle4(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
-	srvHeapHandle4.Offset(gBufferSrvOffset + 7, mCbvSrvUavDescriptorSize);
+	srvHeapHandle4.Offset(gBufferSrvOffset + 6, mCbvSrvUavDescriptorSize);
 	CD3DX12_GPU_DESCRIPTOR_HANDLE gpuSrvHandle4(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
-	gpuSrvHandle4.Offset(gBufferSrvOffset + 7, mCbvSrvUavDescriptorSize);
+	gpuSrvHandle4.Offset(gBufferSrvOffset + 6, mCbvSrvUavDescriptorSize);
 	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHeapHandle4(mRtvHeap->GetCPUDescriptorHandleForHeapStart());
-	rtvHeapHandle4.Offset(9, mRtvDescriptorSize);
+	rtvHeapHandle4.Offset(8, mRtvDescriptorSize);
 	mVelocityTexture->BuildDescriptors(
 		srvHeapHandle4,
 		gpuSrvHandle4,
