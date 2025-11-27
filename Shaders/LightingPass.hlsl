@@ -118,6 +118,12 @@ struct VSOut
     float4 PosH : SV_POSITION;
     float2 TexC : TEXCOORD;
 };
+
+struct PixelOut
+{
+    float4 BackBuffer : SV_Target0;
+    float4 CurrentFrameTexture : SV_Target1;
+};
 // draw full-screen quad without VertexBuffer
 VSOut VS_QUAD(uint vid : SV_VertexID)
 {
@@ -148,8 +154,9 @@ VSOut VS(VertexIn vin)
     return vout;
 }
 
+
 // Пиксельный шейдер освещения
-float4 PS(VSOut pin) : SV_TARGET
+PixelOut PS(VSOut pin) : SV_Target
 {
     LightData light;
     light.Color = Color;
@@ -253,10 +260,16 @@ float4 PS(VSOut pin) : SV_TARGET
     
     litColor.a = albedo.a;
 
-    return litColor;
+    PixelOut pout;
+    pout.BackBuffer = litColor;
+    pout.CurrentFrameTexture = litColor;
+    return pout;
 }
 
-float4 PS_debug(VSOut pin) : SV_TARGET
+PixelOut PS_debug(VSOut pin) 
 {
-    return float4(1, 1, 1, 1);
+    PixelOut pout;
+    pout.BackBuffer = float4(1, 1, 1, 1);
+    pout.CurrentFrameTexture = float4(1, 1, 1, 1);
+    return pout;
 }

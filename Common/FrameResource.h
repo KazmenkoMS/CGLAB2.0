@@ -33,6 +33,9 @@ struct PassConstants
     float DeltaTime = 0.0f;
 
     DirectX::XMFLOAT4 AmbientLight = { 0.0f, 0.0f, 0.0f, 1.0f };
+    DirectX::XMFLOAT4X4 JitteredViewProj;
+    DirectX::XMFLOAT4X4 PrevViewProj;
+
 };
 
 struct MaterialData
@@ -67,6 +70,14 @@ struct LightConstants
     int enablePCF;
     int pcf_level;
 };
+
+struct TAAConstants
+{
+	float blendFactor = 0.01f;
+    DirectX::XMFLOAT3 pad;
+
+};
+
 struct Vertex
 {
     DirectX::XMFLOAT3 Pos;
@@ -96,6 +107,7 @@ public:
     std::unique_ptr<UploadBuffer<ObjectConstants>> ObjectCB = nullptr;
     std::unique_ptr<UploadBuffer<LightConstants>> LightCB = nullptr;
     std::unique_ptr<UploadBuffer<ShadowConstants>> ShadowCB = nullptr;
+    std::unique_ptr<UploadBuffer<TAAConstants>> TAACB = nullptr;
 	std::unique_ptr<UploadBuffer<MaterialData>> MaterialBuffer = nullptr;
 
     // Fence value to mark commands up to this fence point.  This lets us

@@ -50,7 +50,8 @@ cbuffer cbPass : register(b1)
     float gTotalTime;
     float gDeltaTime;
     float4 gAmbientLight;
-    
+    float4x4 gJitteredViewProj;
+    float4x4 prevViewProj;
     Light gLights[16];
 };
 
@@ -80,6 +81,8 @@ struct VertexOut
     float3 NormalW : NORMAL;
     float3 TangentW : TANGENT;
     float2 TexC : TEXCOORD;
+    float4 PrevPosH : POSITION2;
+    float4 CurPosH : POSITION3;
 };
 
 // Выходная структура Пиксельного Шейдера
@@ -88,8 +91,8 @@ struct PixelOut
     float4 AlbedoRoughness : SV_Target0; // RT0
     float4 NormalFresnel : SV_Target1; // RT1
     float4 Position : SV_Target2; // RT2
+    float2 Velocity : SV_Target3;
 };
-
 
 //---------------------------------------------------------------------------------------
 // Transforms a normal map sample to world space.
@@ -115,6 +118,7 @@ float3 NormalSampleToWorldSpace(float3 normalMapSample, float3 unitNormalW, floa
 
 VertexOut VS(VertexIn vin)
 {
+    
     VertexOut vout = (VertexOut) 0.0f;
 
 	// Fetch the material data.
@@ -130,8 +134,9 @@ VertexOut VS(VertexIn vin)
     vout.TangentW = mul(vin.TangentU, (float3x3) gWorld);
 
     // Transform to homogeneous clip space.
-    vout.PosH = mul(posW, gViewProj);
-	
+    vout.PosH = mul(posW, gJitteredViewProj);
+    vout.PrevPosH = mul(posW, prevViewProj);
+    vout.CurPosH = mul(posW, gViewProj);
 	// Output vertex attributes for interpolation across triangle.
     float4 texC = mul(float4(vin.TexC, 0.0f, 1.0f), gTexTransform);
     vout.TexC = mul(texC, matData.MatTransform).xy;
@@ -174,9 +179,19 @@ PixelOut PS(VertexOut pin) : SV_Target
 
     // RT2: Мировая позиция (RGB) + Unused
     pout.Position = float4(pin.PosW, 1.0f);
-
-    return pout;
     
+    float3 currentPosNDC = pin.CurPosH.xyz / pin.CurPosH.w;
+    float3 prevPosNDC = pin.PrevPosH.xyz / pin.PrevPosH.w;
+    
+    float2 currentUV = currentPosNDC.xy * 0.5f + 0.5f;
+    float2 prevUV = prevPosNDC.xy * 0.5f + 0.5f;
+    
+    currentUV.y = 1.0f - currentUV.y;
+    prevUV.y = 1.0f - prevUV.y;
+    
+    pout.Velocity = currentUV - prevUV;
+    
+    return pout;
 }
 
 

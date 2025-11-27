@@ -165,8 +165,9 @@
     <ClCompile Include="Common\imgui_tables.cpp" />
     <ClCompile Include="Common\imgui_widgets.cpp" />
     <ClCompile Include="Common\MathHelper.cpp" />
+    <ClCompile Include="Common\ResourceManager.cpp" />
     <ClCompile Include="Common\ShadowMap.cpp" />
-    <ClCompile Include="ResourceManager.cpp" />
+    <ClCompile Include="ShaderTexture.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="CGLAB.h" />
@@ -193,6 +194,7 @@
     <ClInclude Include="GBuffer.h" />
     <ClInclude Include="GeometryManager.h" />
     <ClInclude Include="ResourceManager.h" />
+    <ClInclude Include="ShaderTexture.h" />
   </ItemGroup>
   <ItemGroup>
     <Text Include="Shaders\Common.hlsl">
@@ -217,15 +219,25 @@
       <FileType>Document</FileType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.1</ShaderModel>
     </Text>
-    <Text Include="Shaders\Sky.hlsl">
+    <FxCompile Include="Shaders\Sky.hlsl">
       <FileType>Document</FileType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.1</ShaderModel>
-    </Text>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Vertex</ShaderType>
+      <EntryPointName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">VS</EntryPointName>
+    </FxCompile>
   </ItemGroup>
   <ItemGroup>
-    <Text Include="Shaders\GeometryPass.hlsl">
+    <FxCompile Include="Shaders\GeometryPass.hlsl">
       <FileType>Document</FileType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.1</ShaderModel>
+      <EntryPointName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">VS</EntryPointName>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Vertex</ShaderType>
+    </FxCompile>
+    <Text Include="Shaders\TAA.hlsl">
+      <EntryPointName Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">VS</EntryPointName>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Vertex</ShaderType>
+      <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.1</ShaderModel>
+      <FileType>Document</FileType>
     </Text>
     <Text Include="Shaders\LightingPass.hlsl">
       <FileType>Document</FileType>

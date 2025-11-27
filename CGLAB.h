@@ -11,7 +11,7 @@
 #include "ResourceManager.h"
 #include "Config.h"
 #include "GBuffer.h"
-
+#include "ShaderTexture.h"
 using Microsoft::WRL::ComPtr;
 using namespace DirectX;
 using namespace DirectX::PackedVector;
@@ -80,6 +80,7 @@ private:
     void UpdateMaterialBuffer(const GameTimer& gt);
     void UpdateMainPassCB(const GameTimer& gt);
     void UpdateLightCBs(const GameTimer& gt);
+	void UpdateTAA(const GameTimer& gt);
     void ImguiUpdate();
 
     /*
@@ -89,11 +90,14 @@ private:
     void BuildShadowsRootSignature();
     void BuildGeometryRootSignature();
     void BuildLightingRootSignature();
+    void BuildTAARootSignature();
     void BuildDescriptorHeaps();
     void BuildShadersAndInputLayout();
     void BuildPSOs();
     void BuildFrameResources();
-    void BuildGBuffer(); 
+    void BuildGBuffer();
+    void BuildTAATextures();
+
     void BuildLights();
     void SetLightShapes();
     void BuildRenderItems();
@@ -105,6 +109,8 @@ private:
     void ImguiInit();
 
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetStaticSamplers(); // Семплеры
+
+    void GenerateTransformedHaltonSequence(float viewSizeX, float viewSizeY, XMFLOAT2* outJitters);
 
     /*
 	INPUT HANDLERS
@@ -128,6 +134,7 @@ private:
     ComPtr<ID3D12RootSignature> mShadowsRootSignature;
     ComPtr<ID3D12RootSignature> mGeometryRootSignature;
     ComPtr<ID3D12RootSignature> mLightingRootSignature;
+    ComPtr<ID3D12RootSignature> mTAARootSignature;
 
     std::unordered_map<std::string, ComPtr<ID3DBlob>> mShaders;
     std::unordered_map<std::string, ComPtr<ID3D12PipelineState>> mPSOs;
@@ -152,7 +159,7 @@ private:
     std::vector<std::unique_ptr<RenderItem>> mAllRitems;
     std::vector<RenderItem*> mRitemLayer[(int)RenderLayer::Count];
     PassConstants mMainPassCB; 
-
+	TAAConstants mTAAConstants;
     /*
     DEFERRED RENDERING
     */
@@ -167,4 +174,14 @@ private:
     INPUT
     */
     POINT mLastMousePos;
+
+
+    XMFLOAT2 jitters[16];
+	int frameIndex = 0;
+	std::unique_ptr<ShaderTexture> mPrevTexture;
+	std::unique_ptr<ShaderTexture> mCurrentTexture;
+	std::unique_ptr<ShaderTexture> mJitteredTexture;
+	std::unique_ptr<ShaderTexture> mPositionOld;
+	std::unique_ptr<ShaderTexture> mVelocityTexture;
+    bool useTaa = true;
 };

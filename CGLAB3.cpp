@@ -7,7 +7,7 @@
 
 static int imguiID = 0;
 const int gNumFrameResources = 3;
-
+float blendfactor = 0.01f;
 // Main application entry point.
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
 	PSTR cmdLine, int showCmd)
@@ -64,7 +64,7 @@ bool CGLAB::Initialize()
 
 	// TODO - make full camera initialization in separate method
 	mCamera.SetPosition(0.0f, 2.0f, -15.0f);
-	
+
 	mGeomMgr = std::make_unique<GeometryManager>();
 	mGeomMgr->BuildBasicGeometry(md3dDevice.Get(), mCommandList.Get());
 	mGeomMgr->BuildGeometryFromFile(md3dDevice.Get(), mCommandList.Get(), "Models/skull.obj", "skullGeo");
@@ -77,7 +77,7 @@ bool CGLAB::Initialize()
 	BuildShadowsRootSignature();
 	BuildGeometryRootSignature();
 	BuildLightingRootSignature();
-
+	BuildTAARootSignature();
 	BuildDescriptorHeaps();
 	mResourceMgr->BuildMaterials();
 
@@ -85,6 +85,11 @@ bool CGLAB::Initialize()
 	BuildLights();
 	SetLightShapes();
 	BuildGBuffer();
+	mPrevTexture = std::make_unique<ShaderTexture>(md3dDevice.Get(), mClientWidth, mClientHeight);
+	mCurrentTexture = std::make_unique<ShaderTexture>(md3dDevice.Get(), mClientWidth, mClientHeight);
+	mJitteredTexture = std::make_unique<ShaderTexture>(md3dDevice.Get(), mClientWidth, mClientHeight);
+	mPositionOld = std::make_unique<ShaderTexture>(md3dDevice.Get(), mClientWidth, mClientHeight);
+	mVelocityTexture = std::make_unique<ShaderTexture>(md3dDevice.Get(), mClientWidth, mClientHeight);
 	BuildRenderItems();
 	BuildFrameResources();
 	BuildPSOs();
@@ -98,6 +103,9 @@ bool CGLAB::Initialize()
 
 	// wait
 	FlushCommandQueue();
+	mTAAConstants.blendFactor = 0.01f;
+
+	GenerateTransformedHaltonSequence(mClientWidth, mClientHeight, jitters);
 
 	return true;
 }
@@ -142,6 +150,7 @@ void CGLAB::OnResize()
 	D3DApp::OnResize();
 	BuildDescriptorHeaps();
 	BuildGBuffer();
+	BuildTAATextures();
 	mCamera.SetLens(mConfig.CameraFovY, AspectRatio(), mConfig.CameraNearZ, mConfig.CameraFarZ);
 }
 
@@ -169,6 +178,7 @@ void CGLAB::Update(const GameTimer& gt)
 	UpdateMaterialBuffer(gt);
 	UpdateMainPassCB(gt);
 	UpdateLightCBs(gt);
+	UpdateTAA(gt);
 	ImguiUpdate();
 }
 
@@ -213,16 +223,20 @@ void CGLAB::Draw(const GameTimer& gt)
 
 	// Чистим G-Buffer и ставим его как цель
 	float clearColor[] = { 0.0f, 0.0f, 0.0f, 1.0f };
-	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandles[3];
+	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandles[4];
 	for (int i = 0; i < 3; ++i) {
 		rtvHandles[i] = mGBuffer->Rtv(i);
 		mCommandList->ClearRenderTargetView(rtvHandles[i], clearColor, 0, nullptr);
 	}
-	
+	mCommandList->ClearRenderTargetView(mVelocityTexture->Rtv(), Colors::Black, 0, nullptr);
+	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(mVelocityTexture->Resource(),
+		D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_RENDER_TARGET));
+	rtvHandles[3] = mVelocityTexture->Rtv();
+
 	// Используем основной Depth Buffer сцены
 	mCommandList->ClearDepthStencilView(DepthStencilView(), D3D12_CLEAR_FLAG_DEPTH | D3D12_CLEAR_FLAG_STENCIL, 1.0f, 0, 0, nullptr);
 
-	mCommandList->OMSetRenderTargets(3, rtvHandles, false, &DepthStencilView());
+	mCommandList->OMSetRenderTargets(4, rtvHandles, false, &DepthStencilView());
 	mCommandList->RSSetViewports(1, &mScreenViewport);
 	mCommandList->RSSetScissorRects(1, &mScissorRect);
 
@@ -254,9 +268,16 @@ void CGLAB::Draw(const GameTimer& gt)
 
 	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(CurrentBackBuffer(),
 		D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET));
+	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(mJitteredTexture->Resource(),
+		D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_RENDER_TARGET));
+	D3D12_CPU_DESCRIPTOR_HANDLE rtvs[2];
+	rtvs[0] = CurrentBackBufferView();
+	rtvs[1] = mJitteredTexture->Rtv();
 
-	mCommandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, nullptr); // Без depth buffer!
+
+	mCommandList->OMSetRenderTargets(2, rtvs, false, nullptr); // Без depth buffer!
 	mCommandList->ClearRenderTargetView(CurrentBackBufferView(), Colors::Black, 0, nullptr);
+	mCommandList->ClearRenderTargetView(rtvs[1], Colors::Black, 0, nullptr);
 
 	mCommandList->SetGraphicsRootSignature(mLightingRootSignature.Get());
 
@@ -272,7 +293,7 @@ void CGLAB::Draw(const GameTimer& gt)
 	skyCubeMap.Offset(mResourceMgr->TexOffsets["skyCubeMap"], mCbvSrvUavDescriptorSize);
 	mCommandList->SetGraphicsRootDescriptorTable(2, skyCubeMap);
 
-	
+
 
 	// 2: GBuffer Table
 	mCommandList->SetGraphicsRootDescriptorTable(4, mGBuffer->Srv());
@@ -299,21 +320,24 @@ void CGLAB::Draw(const GameTimer& gt)
 			mCommandList->DrawIndexedInstanced(light->ShapeGeo.IndexCount, 1, light->ShapeGeo.StartIndexLocation, light->ShapeGeo.BaseVertexLocation, 0);
 		}
 	}
-
 	// ==========================================
 	// 4. Skybox Pass
 	// ==========================================
 
-	mCommandList->OMSetRenderTargets(1, &CurrentBackBufferView(), true, &DepthStencilView());
+	D3D12_CPU_DESCRIPTOR_HANDLE rtvs_sky[3];
+	rtvs_sky[0] = CurrentBackBufferView();
+	rtvs_sky[1] = mJitteredTexture->Rtv();
+	rtvs_sky[2] = mVelocityTexture->Rtv();
+	mCommandList->OMSetRenderTargets(3, rtvs_sky, false, &DepthStencilView());
 	mCommandList->RSSetViewports(1, &mScreenViewport);
 	mCommandList->RSSetScissorRects(1, &mScissorRect);
-	
+
 	mCommandList->SetGraphicsRootSignature(mRootSignature.Get()); // Возвращаем Main Signature
 	mCommandList->SetPipelineState(mPSOs["sky"].Get());
 
 	// Биндинг PassCB (Slot 1)
-	mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress()); 
-	
+	mCommandList->SetGraphicsRootConstantBufferView(1, passCB->GetGPUVirtualAddress());
+
 	// !!! ИСПРАВЛЕНИЕ 3: Привязываем Material Buffer (Slot 2) и для Skybox !!!
 	mCommandList->SetGraphicsRootShaderResourceView(2, matBuffer->GetGPUVirtualAddress());
 
@@ -321,31 +345,72 @@ void CGLAB::Draw(const GameTimer& gt)
 	CD3DX12_GPU_DESCRIPTOR_HANDLE skyTexDescriptor(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 	skyTexDescriptor.Offset(mResourceMgr->TexOffsets["skyCubeMap"], mCbvSrvUavDescriptorSize);
 	mCommandList->SetGraphicsRootDescriptorTable(3, skyTexDescriptor);
-	
+
 	// Биндинг Textures (Slot 4) - формально нужен для сигнатуры, даже если скайбокс не использует
 	mCommandList->SetGraphicsRootDescriptorTable(4, mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
 
 	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Sky]);
 
+	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(mVelocityTexture->Resource(),
+		D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_GENERIC_READ));
 	// 0: PassCB
 	mCommandList->SetGraphicsRootConstantBufferView(0, passCB->GetGPUVirtualAddress());
-	// drawing light shapes
-	mCommandList->SetPipelineState(mPSOs["lightingShapes"].Get());
-	for (auto& light : mLights)
+
+	//// drawing light shapes
+	//mCommandList->OMSetRenderTargets(2, rtvs, false, nullptr); // Без depth buffer!
+
+	//mCommandList->SetPipelineState(mPSOs["lightingShapes"].Get());
+	//for (auto& light : mLights)
+	//{
+	//	if (light->type != 0 && light->type != 2 && light->isDebugOn == 1)
+	//	{
+	//		auto lightCB = mCurrFrameResource->LightCB->Resource();
+	//		mCommandList->IASetVertexBuffers(0, 1, &mGeomMgr->mGeometries["shapeGeo"]->VertexBufferView());
+	//		mCommandList->IASetIndexBuffer(&mGeomMgr->mGeometries["shapeGeo"]->IndexBufferView());
+
+	//		D3D12_GPU_VIRTUAL_ADDRESS lightCBAddress = lightCB->GetGPUVirtualAddress() + light->LightCBIndex * lightCBByteSize;
+	//		mCommandList->SetGraphicsRootConstantBufferView(1, lightCBAddress);
+
+	//		mCommandList->DrawIndexedInstanced(light->ShapeGeo.IndexCount, 1, light->ShapeGeo.StartIndexLocation, light->ShapeGeo.BaseVertexLocation, 0);
+	//	}
+
+	//}
+
+
+
+	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(mJitteredTexture->Resource(),
+		D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_GENERIC_READ));
+	if (useTaa)
 	{
-		if (light->type != 0 && light->type != 2 && light->isDebugOn == 1)
+		mCommandList->SetPipelineState(mPSOs["TAA"].Get());
+		mCommandList->SetGraphicsRootSignature(mTAARootSignature.Get());
+		mCommandList->SetGraphicsRootDescriptorTable(1, mJitteredTexture->Srv());
+		
+		if (frameIndex % 2 == 0)
 		{
-			auto lightCB = mCurrFrameResource->LightCB->Resource();
-			mCommandList->IASetVertexBuffers(0, 1, &mGeomMgr->mGeometries["shapeGeo"]->VertexBufferView());
-			mCommandList->IASetIndexBuffer(&mGeomMgr->mGeometries["shapeGeo"]->IndexBufferView());
-
-			D3D12_GPU_VIRTUAL_ADDRESS lightCBAddress = lightCB->GetGPUVirtualAddress() + light->LightCBIndex * lightCBByteSize;
-			mCommandList->SetGraphicsRootConstantBufferView(1, lightCBAddress);
-
-			mCommandList->DrawIndexedInstanced(light->ShapeGeo.IndexCount, 1, light->ShapeGeo.StartIndexLocation, light->ShapeGeo.BaseVertexLocation, 0);
+			mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(mPrevTexture->Resource(),
+				D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_GENERIC_READ));
+			mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(mCurrentTexture->Resource(),
+				D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_RENDER_TARGET));
+			rtvs[1] = mCurrentTexture->Rtv();
+			mCommandList->SetGraphicsRootDescriptorTable(0, mPrevTexture->Srv());
 		}
+		else
+		{
+			mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(mCurrentTexture->Resource(),
+				D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_GENERIC_READ));
+			mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(mPrevTexture->Resource(),
+				D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_RENDER_TARGET));
+			rtvs[1] = mPrevTexture->Rtv();
+			mCommandList->SetGraphicsRootDescriptorTable(0, mCurrentTexture->Srv());
+		}
+		mCommandList->SetGraphicsRootDescriptorTable(3, mVelocityTexture->Srv());
+		mCommandList->OMSetRenderTargets(2, rtvs, false, nullptr);
 
+		mCommandList->SetGraphicsRootConstantBufferView(2, mCurrFrameResource->TAACB->Resource()->GetGPUVirtualAddress());
+		mCommandList->DrawInstanced(3, 1, 0, 0);
 	}
+	
 	// ==========================================
 	// 6. IMGUI Render
 	// ==========================================
@@ -367,7 +432,11 @@ void CGLAB::Draw(const GameTimer& gt)
 	ID3D12CommandList* cmdsLists[] = { mCommandList.Get() };
 	mCommandQueue->ExecuteCommandLists(_countof(cmdsLists), cmdsLists);
 
-	ThrowIfFailed(mSwapChain->Present(0, 0));
+	ThrowIfFailed(mSwapChain->Present(1, 0));
+
+	frameIndex++;
+	frameIndex = frameIndex % 16;
+
 	mCurrBackBuffer = (mCurrBackBuffer + 1) % SwapChainBufferCount;
 
 	mCurrFrameResource->Fence = ++mCurrentFence;
@@ -466,21 +535,27 @@ void CGLAB::UpdateObjectCBs(const GameTimer& gt)
 // Main pass variables(gWorld, gView, gProj, etc)
 void CGLAB::UpdateMainPassCB(const GameTimer& gt)
 {
+
 	XMMATRIX view = mCamera.GetView();
 	XMMATRIX proj = mCamera.GetProj();
+	XMMATRIX proj_jittered = proj;
+	proj_jittered.r[2].m128_f32[0] += jitters[frameIndex].x;
+	proj_jittered.r[2].m128_f32[1] += jitters[frameIndex].y;
 
 	XMMATRIX viewProj = XMMatrixMultiply(view, proj);
 	XMMATRIX invView = XMMatrixInverse(&XMMatrixDeterminant(view), view);
 	XMMATRIX invProj = XMMatrixInverse(&XMMatrixDeterminant(proj), proj);
 	XMMATRIX invViewProj = XMMatrixInverse(&XMMatrixDeterminant(viewProj), viewProj);
-
+	XMMATRIX viewProj_jittered = XMMatrixMultiply(view, proj_jittered);
 
 	XMStoreFloat4x4(&mMainPassCB.View, XMMatrixTranspose(view));
 	XMStoreFloat4x4(&mMainPassCB.InvView, XMMatrixTranspose(invView));
 	XMStoreFloat4x4(&mMainPassCB.Proj, XMMatrixTranspose(proj));
-	XMStoreFloat4x4(&mMainPassCB.InvProj, XMMatrixTranspose(invProj));
+	XMStoreFloat4x4(&mMainPassCB.InvProj, XMMatrixTranspose(invProj)); 
+	mMainPassCB.PrevViewProj = mMainPassCB.ViewProj;
 	XMStoreFloat4x4(&mMainPassCB.ViewProj, XMMatrixTranspose(viewProj));
 	XMStoreFloat4x4(&mMainPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
+	XMStoreFloat4x4(&mMainPassCB.JitteredViewProj, XMMatrixTranspose(viewProj_jittered));
 	mMainPassCB.EyePosW = mCamera.GetPosition3f();
 	mMainPassCB.RenderTargetSize = XMFLOAT2((float)mClientWidth, (float)mClientHeight);
 	mMainPassCB.InvRenderTargetSize = XMFLOAT2(1.0f / mClientWidth, 1.0f / mClientHeight);
@@ -489,7 +564,6 @@ void CGLAB::UpdateMainPassCB(const GameTimer& gt)
 	mMainPassCB.TotalTime = gt.TotalTime();
 	mMainPassCB.DeltaTime = gt.DeltaTime();
 	mMainPassCB.AmbientLight = { 0, 0, 0, 1.0f };
-
 	auto currPassCB = mCurrFrameResource->PassCB.get();
 	currPassCB->CopyData(0, mMainPassCB);
 }
@@ -556,7 +630,7 @@ void CGLAB::UpdateLightCBs(const GameTimer& gt)
 				XMFLOAT3 Pos(l->Position);
 				XMVECTOR lightPos = XMLoadFloat3(&Pos);
 				XMVECTOR lightDir = XMLoadFloat3(&l->Direction);
-				XMVECTOR targetPos = lightPos + lightDir; 
+				XMVECTOR targetPos = lightPos + lightDir;
 				XMVECTOR lightUp = l->LightUp;
 
 				XMMATRIX lightView = XMMatrixLookAtLH(lightPos, targetPos, lightUp);
@@ -617,6 +691,12 @@ void CGLAB::UpdateLightCBs(const GameTimer& gt)
 		currLightCB->CopyData(l->LightCBIndex, lConst);
 		lId++;
 	}
+}
+
+void CGLAB::UpdateTAA(const GameTimer& gt)
+{
+	auto TaaCB = mCurrFrameResource->TAACB.get();
+	TaaCB->CopyData(0, mTAAConstants); 
 }
 
 void CGLAB::ImguiUpdate()
@@ -710,6 +790,12 @@ void CGLAB::ImguiUpdate()
 			}
 			ImGui::EndTabItem();
 		}
+		if (ImGui::BeginTabItem("TAA"))
+		{
+			ImGui::DragFloat("Blendfactor", &mTAAConstants.blendFactor, 0.01f, 0.0f, 1.0f);
+			ImGui::Checkbox("Use TAA?", &useTaa);
+			ImGui::EndTabItem();
+		}
 		ImGui::EndTabBar();
 	}
 	ImGui::End();
@@ -725,7 +811,7 @@ void CGLAB::BuildDescriptorHeaps()
 	// Create the SRV heap.
 	//
 	D3D12_DESCRIPTOR_HEAP_DESC srvHeapDesc = {};
-	srvHeapDesc.NumDescriptors = 50 + 3;
+	srvHeapDesc.NumDescriptors = 50 + 3 + 3 + 2;
 	srvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
 	srvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 	ThrowIfFailed(md3dDevice->CreateDescriptorHeap(&srvHeapDesc, IID_PPV_ARGS(&mSrvDescriptorHeap)));
@@ -806,7 +892,7 @@ void CGLAB::BuildDescriptorHeaps()
 			light->ShadowMap->BuildDescriptors(
 				CD3DX12_CPU_DESCRIPTOR_HANDLE(srvCpuStart, shadowsrvOffset, mCbvSrvUavDescriptorSize),
 				CD3DX12_GPU_DESCRIPTOR_HANDLE(srvGpuStart, shadowsrvOffset, mCbvSrvUavDescriptorSize),
-				CD3DX12_CPU_DESCRIPTOR_HANDLE(dsvCpuStart, i+1, mDsvDescriptorSize));
+				CD3DX12_CPU_DESCRIPTOR_HANDLE(dsvCpuStart, i + 1, mDsvDescriptorSize));
 
 			i++;
 			shadowsrvOffset++;
@@ -819,7 +905,7 @@ void CGLAB::CreateRtvAndDsvDescriptorHeaps()
 {
 	// Add +6 RTV for cube render target.
 	D3D12_DESCRIPTOR_HEAP_DESC rtvHeapDesc;
-	rtvHeapDesc.NumDescriptors = SwapChainBufferCount + 3; // +3 for GBuffer RTVs
+	rtvHeapDesc.NumDescriptors = SwapChainBufferCount + 3 + 3 + 2; // +3 for GBuffer RTVs + 3 for prev/current/jittered  frame RTV + 2 for velocity textures(old/new)
 	rtvHeapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
 	rtvHeapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_NONE;
 	rtvHeapDesc.NodeMask = 0;
@@ -860,7 +946,80 @@ void CGLAB::BuildGBuffer()
 		mRtvDescriptorSize
 	);
 }
+void CGLAB::BuildTAATextures()
+{
 
+	CD3DX12_CPU_DESCRIPTOR_HANDLE srvHeapHandle(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+	srvHeapHandle.Offset(gBufferSrvOffset + 3, mCbvSrvUavDescriptorSize);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE gpuSrvHandle(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+	gpuSrvHandle.Offset(gBufferSrvOffset + 3, mCbvSrvUavDescriptorSize);
+	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHeapHandle(mRtvHeap->GetCPUDescriptorHandleForHeapStart());
+	rtvHeapHandle.Offset(5, mRtvDescriptorSize);
+	mPrevTexture->BuildDescriptors(
+		srvHeapHandle,
+		gpuSrvHandle,
+		rtvHeapHandle,
+		mCbvSrvUavDescriptorSize,
+		mRtvDescriptorSize
+	);
+
+	CD3DX12_CPU_DESCRIPTOR_HANDLE srvHeapHandle1(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+	srvHeapHandle1.Offset(gBufferSrvOffset + 4, mCbvSrvUavDescriptorSize);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE gpuSrvHandle1(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+	gpuSrvHandle1.Offset(gBufferSrvOffset + 4, mCbvSrvUavDescriptorSize);
+	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHeapHandle1(mRtvHeap->GetCPUDescriptorHandleForHeapStart());
+	rtvHeapHandle1.Offset(6, mRtvDescriptorSize);
+	mCurrentTexture->BuildDescriptors(
+		srvHeapHandle1,
+		gpuSrvHandle1,
+		rtvHeapHandle1,
+		mCbvSrvUavDescriptorSize,
+		mRtvDescriptorSize
+	);
+
+
+	CD3DX12_CPU_DESCRIPTOR_HANDLE srvHeapHandle2(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+	srvHeapHandle2.Offset(gBufferSrvOffset + 5, mCbvSrvUavDescriptorSize);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE gpuSrvHandle2(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+	gpuSrvHandle2.Offset(gBufferSrvOffset + 5, mCbvSrvUavDescriptorSize);
+	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHeapHandle2(mRtvHeap->GetCPUDescriptorHandleForHeapStart());
+	rtvHeapHandle2.Offset(7, mRtvDescriptorSize);
+	mJitteredTexture->BuildDescriptors(
+		srvHeapHandle2,
+		gpuSrvHandle2,
+		rtvHeapHandle2,
+		mCbvSrvUavDescriptorSize,
+		mRtvDescriptorSize
+	);
+
+	CD3DX12_CPU_DESCRIPTOR_HANDLE srvHeapHandle3(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+	srvHeapHandle3.Offset(gBufferSrvOffset + 6, mCbvSrvUavDescriptorSize);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE gpuSrvHandle3(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+	gpuSrvHandle3.Offset(gBufferSrvOffset + 6, mCbvSrvUavDescriptorSize);
+	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHeapHandle3(mRtvHeap->GetCPUDescriptorHandleForHeapStart());
+	rtvHeapHandle3.Offset(8, mRtvDescriptorSize);
+	mPositionOld->BuildDescriptors(
+		srvHeapHandle3,
+		gpuSrvHandle3,
+		rtvHeapHandle3,
+		mCbvSrvUavDescriptorSize,
+		mRtvDescriptorSize
+	);
+
+	CD3DX12_CPU_DESCRIPTOR_HANDLE srvHeapHandle4(mSrvDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+	srvHeapHandle4.Offset(gBufferSrvOffset + 7, mCbvSrvUavDescriptorSize);
+	CD3DX12_GPU_DESCRIPTOR_HANDLE gpuSrvHandle4(mSrvDescriptorHeap->GetGPUDescriptorHandleForHeapStart());
+	gpuSrvHandle4.Offset(gBufferSrvOffset + 7, mCbvSrvUavDescriptorSize);
+	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHeapHandle4(mRtvHeap->GetCPUDescriptorHandleForHeapStart());
+	rtvHeapHandle4.Offset(9, mRtvDescriptorSize);
+	mVelocityTexture->BuildDescriptors(
+		srvHeapHandle4,
+		gpuSrvHandle4,
+		rtvHeapHandle4,
+		mCbvSrvUavDescriptorSize,
+		mRtvDescriptorSize
+	);
+}
 void CGLAB::BuildShadersAndInputLayout()
 {
 	const D3D_SHADER_MACRO alphaTestDefines[] =
@@ -887,6 +1046,8 @@ void CGLAB::BuildShadersAndInputLayout()
 	mShaders["lightingPSDebug"] = d3dUtil::CompileShader(L"Shaders\\LightingPass.hlsl", nullptr, "PS_debug", "ps_5_1");
 	mShaders["lightingQUADVS"] = d3dUtil::CompileShader(L"Shaders\\LightingPass.hlsl", nullptr, "VS_QUAD", "vs_5_1");
 
+	mShaders["TaaVS"] = d3dUtil::CompileShader(L"Shaders\\TAA.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["TaaPS"] = d3dUtil::CompileShader(L"Shaders\\TAA.hlsl", nullptr, "PS", "ps_5_1");
 
 	mInputLayout =
 	{
@@ -967,6 +1128,10 @@ void CGLAB::BuildPSOs()
 	skyPsoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO;
 	skyPsoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_LESS_EQUAL;
 	skyPsoDesc.pRootSignature = mRootSignature.Get();
+	skyPsoDesc.NumRenderTargets = 3;
+	skyPsoDesc.RTVFormats[0] = mBackBufferFormat;
+	skyPsoDesc.RTVFormats[1] = mPrevTexture->mFormat;
+	skyPsoDesc.RTVFormats[2] = mPrevTexture->mFormat;
 	skyPsoDesc.VS =
 	{
 		reinterpret_cast<BYTE*>(mShaders["skyVS"]->GetBufferPointer()),
@@ -992,10 +1157,11 @@ void CGLAB::BuildPSOs()
 	gPassPsoDesc.VS = { reinterpret_cast<BYTE*>(mShaders["GPassVS"]->GetBufferPointer()), mShaders["GPassVS"]->GetBufferSize() };
 	gPassPsoDesc.PS = { reinterpret_cast<BYTE*>(mShaders["GPassPS"]->GetBufferPointer()), mShaders["GPassPS"]->GetBufferSize() };
 
-	gPassPsoDesc.NumRenderTargets = 3;
+	gPassPsoDesc.NumRenderTargets = 4;
 	gPassPsoDesc.RTVFormats[0] = GBUFFER_FORMATS[0];
 	gPassPsoDesc.RTVFormats[1] = GBUFFER_FORMATS[1];
 	gPassPsoDesc.RTVFormats[2] = GBUFFER_FORMATS[2];
+	gPassPsoDesc.RTVFormats[3] = mVelocityTexture->mFormat;
 
 	gPassPsoDesc.DepthStencilState.DepthEnable = true;
 	gPassPsoDesc.DepthStencilState.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ALL;
@@ -1034,8 +1200,9 @@ void CGLAB::BuildPSOs()
 	lightPsoDesc.BlendState = blendDesc;
 	lightPsoDesc.SampleMask = UINT_MAX;
 	lightPsoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
-	lightPsoDesc.NumRenderTargets = 1;
+	lightPsoDesc.NumRenderTargets = 2;
 	lightPsoDesc.RTVFormats[0] = mBackBufferFormat;
+	lightPsoDesc.RTVFormats[1] = mPrevTexture->mFormat;
 	lightPsoDesc.SampleDesc.Count = m4xMsaaState ? 4 : 1;
 	lightPsoDesc.SampleDesc.Quality = m4xMsaaState ? (m4xMsaaQuality - 1) : 0;
 	lightPsoDesc.DSVFormat = mDepthStencilFormat;
@@ -1059,6 +1226,7 @@ void CGLAB::BuildPSOs()
 	lightShapesPsoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
 	lightShapesPsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
 	D3D12_DEPTH_STENCIL_DESC dsDesc = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+
 	dsDesc.DepthEnable = TRUE;
 	dsDesc.DepthWriteMask = D3D12_DEPTH_WRITE_MASK_ZERO; // можно отключить запись, но оставить тест
 	dsDesc.DepthFunc = D3D12_COMPARISON_FUNC_LESS;
@@ -1066,6 +1234,27 @@ void CGLAB::BuildPSOs()
 	lightShapesPsoDesc.PS = { reinterpret_cast<BYTE*>(mShaders["lightingPSDebug"]->GetBufferPointer()),
 						mShaders["lightingPSDebug"]->GetBufferSize() };
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&lightShapesPsoDesc, IID_PPV_ARGS(&mPSOs["lightingShapes"])));
+
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC taaPsoDesc = skyPsoDesc;
+
+	taaPsoDesc.DepthStencilState.DepthEnable = false;
+	taaPsoDesc.pRootSignature = mTAARootSignature.Get();
+	taaPsoDesc.NumRenderTargets = 2;
+	taaPsoDesc.RTVFormats[0] = mBackBufferFormat;
+	taaPsoDesc.RTVFormats[1] = mPrevTexture->mFormat;
+	taaPsoDesc.RTVFormats[2] = DXGI_FORMAT_UNKNOWN;
+	taaPsoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["TaaVS"]->GetBufferPointer()),
+		mShaders["TaaVS"]->GetBufferSize()
+	};
+	taaPsoDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["TaaPS"]->GetBufferPointer()),
+		mShaders["TaaPS"]->GetBufferSize()
+	};
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&taaPsoDesc, IID_PPV_ARGS(&mPSOs["TAA"])));
+
 }
 
 void CGLAB::BuildFrameResources()
@@ -1208,7 +1397,7 @@ void CGLAB::BuildLightingRootSignature()
 {
 
 	CD3DX12_DESCRIPTOR_RANGE gBufferTable;
-	gBufferTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 2); 
+	gBufferTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 2);
 
 	CD3DX12_DESCRIPTOR_RANGE cubeMap;
 	cubeMap.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
@@ -1245,6 +1434,47 @@ void CGLAB::BuildLightingRootSignature()
 		IID_PPV_ARGS(mLightingRootSignature.GetAddressOf())));
 }
 
+void CGLAB::BuildTAARootSignature()
+{
+	CD3DX12_DESCRIPTOR_RANGE prevFrame;
+	prevFrame.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+	CD3DX12_DESCRIPTOR_RANGE currentFrame;
+	currentFrame.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1);
+	CD3DX12_DESCRIPTOR_RANGE positionOld;
+	positionOld.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2);
+	CD3DX12_DESCRIPTOR_RANGE positionNew;
+	positionNew.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 3);
+
+	CD3DX12_ROOT_PARAMETER slotRootParameter[5];
+
+	slotRootParameter[0].InitAsDescriptorTable(1, &prevFrame);
+	slotRootParameter[1].InitAsDescriptorTable(1, &currentFrame);
+	slotRootParameter[2].InitAsConstantBufferView(0); // TAA CB
+	slotRootParameter[3].InitAsDescriptorTable(1, &positionOld);
+	slotRootParameter[4].InitAsDescriptorTable(1, &positionNew);
+
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(5, slotRootParameter,
+		(UINT)GetStaticSamplers().size(), GetStaticSamplers().data(),
+		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+	ComPtr<ID3DBlob> serializedRootSig = nullptr;
+	ComPtr<ID3DBlob> errorBlob = nullptr;
+	HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1,
+		serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+	if (errorBlob != nullptr)
+	{
+		::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+	}
+	ThrowIfFailed(hr);
+
+	ThrowIfFailed(md3dDevice->CreateRootSignature(
+		0,
+		serializedRootSig->GetBufferPointer(),
+		serializedRootSig->GetBufferSize(),
+		IID_PPV_ARGS(mTAARootSignature.GetAddressOf())));
+}
+
 
 /*
 LIGHT INITIALIZATION
@@ -1279,7 +1509,7 @@ void CGLAB::CreateSpotLight(XMFLOAT3 pos, XMFLOAT3 rot, XMFLOAT3 color, float fa
 	light->Strength = strength;
 	light->SpotPower = spotpower;
 	light->ShadowMap = std::make_unique<ShadowMap>(md3dDevice.Get(), mConfig.ShadowMapHeight, mConfig.ShadowMapWidth);
-	
+
 	mLights.push_back(std::move(light));
 }
 
@@ -1376,11 +1606,11 @@ void CGLAB::CreateRenderItem(std::string name, std::string materialname, int RIt
 
 void CGLAB::BuildRenderItems()
 {
-	CreateRenderItem("shapeGeo", "sky", (int)RenderLayer::Sky,XMMatrixScaling(5000.0f, 5000.0f, 5000.0f),XMMatrixIdentity(),XMMatrixIdentity(),XMMatrixIdentity(),"sphere");
-	CreateRenderItem("skullGeo", "skullMat", (int)RenderLayer::Opaque,XMMatrixScaling(2.0f, 2.0f, 2.0f),XMMatrixIdentity(),XMMatrixTranslation(0.0f, 3.0f, 0.0f),XMMatrixScaling(1.0f, 1.0f, 1.0f),"Group5732");
-	CreateRenderItem("shapeGeo", "bricks0", (int)RenderLayer::Debug,XMMatrixScaling(1.0f, 1.0f, 1.0f),XMMatrixIdentity(),XMMatrixIdentity(),XMMatrixIdentity(),"quad");
-	CreateRenderItem("shapeGeo", "bricks0", (int)RenderLayer::Opaque,XMMatrixScaling(2.0f, 1.0f, 2.0f),XMMatrixIdentity(),XMMatrixTranslation(0.0f, 0.5f, 0.0f),XMMatrixScaling(1.0f, 0.5f, 1.0f),"box");
-	CreateRenderItem("shapeGeo", "tile0", (int)RenderLayer::Opaque,XMMatrixScaling(1.0f, 1.0f, 1.0f),XMMatrixIdentity(),XMMatrixIdentity(),XMMatrixScaling(8.0f, 8.0f, 1.0f),"grid");
+	CreateRenderItem("shapeGeo", "sky", (int)RenderLayer::Sky, XMMatrixScaling(5000.0f, 5000.0f, 5000.0f), XMMatrixIdentity(), XMMatrixIdentity(), XMMatrixIdentity(), "sphere");
+	CreateRenderItem("skullGeo", "skullMat", (int)RenderLayer::Opaque, XMMatrixScaling(2.0f, 2.0f, 2.0f), XMMatrixIdentity(), XMMatrixTranslation(0.0f, 3.0f, 0.0f), XMMatrixScaling(1.0f, 1.0f, 1.0f), "Group5732");
+	CreateRenderItem("shapeGeo", "bricks0", (int)RenderLayer::Debug, XMMatrixScaling(1.0f, 1.0f, 1.0f), XMMatrixIdentity(), XMMatrixIdentity(), XMMatrixIdentity(), "quad");
+	CreateRenderItem("shapeGeo", "bricks0", (int)RenderLayer::Opaque, XMMatrixScaling(2.0f, 1.0f, 2.0f), XMMatrixIdentity(), XMMatrixTranslation(0.0f, 0.5f, 0.0f), XMMatrixScaling(1.0f, 0.5f, 1.0f), "box");
+	CreateRenderItem("shapeGeo", "tile0", (int)RenderLayer::Opaque, XMMatrixScaling(1.0f, 1.0f, 1.0f), XMMatrixIdentity(), XMMatrixIdentity(), XMMatrixScaling(8.0f, 8.0f, 1.0f), "grid");
 
 	XMMATRIX scaleIdentity = XMMatrixScaling(1.0f, 1.0f, 1.0f);
 	XMMATRIX rotIdentity = XMMatrixIdentity();
@@ -1396,11 +1626,11 @@ void CGLAB::BuildRenderItems()
 		XMMATRIX leftSphereTranslation = XMMatrixTranslation(-5.0f, 3.5f, -10.0f + i * 5.0f);
 		XMMATRIX rightSphereTranslation = XMMatrixTranslation(+5.0f, 3.5f, -10.0f + i * 5.0f);
 
-		CreateRenderItem(geoName, "bricks0", layer,scaleIdentity,rotIdentity,leftCylTranslation,brickTexTransform,"cylinder");
-		CreateRenderItem(geoName, "bricks0", layer,scaleIdentity,rotIdentity,rightCylTranslation,brickTexTransform,"cylinder");
-		
-		CreateRenderItem(geoName, "mirror0", layer,scaleIdentity,rotIdentity,leftSphereTranslation,texIdentity,"sphere");
-		CreateRenderItem(geoName, "mirror0", layer,scaleIdentity,rotIdentity,rightSphereTranslation,texIdentity,"sphere");
+		CreateRenderItem(geoName, "bricks0", layer, scaleIdentity, rotIdentity, leftCylTranslation, brickTexTransform, "cylinder");
+		CreateRenderItem(geoName, "bricks0", layer, scaleIdentity, rotIdentity, rightCylTranslation, brickTexTransform, "cylinder");
+
+		CreateRenderItem(geoName, "mirror0", layer, scaleIdentity, rotIdentity, leftSphereTranslation, texIdentity, "sphere");
+		CreateRenderItem(geoName, "mirror0", layer, scaleIdentity, rotIdentity, rightSphereTranslation, texIdentity, "sphere");
 	}
 }
 
@@ -1544,5 +1774,38 @@ std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> CGLAB::GetStaticSamplers()
 		anisotropicWrap, anisotropicClamp,
 		shadow
 	};
+}
+
+// HALTON SEQUENCE
+void CGLAB::GenerateTransformedHaltonSequence(float viewSizeX, float viewSizeY, XMFLOAT2* outJitters)
+{
+	const XMFLOAT2 HaltonPoints[16] =
+	{
+		XMFLOAT2(0.500000f, 0.333333f),
+		XMFLOAT2(0.250000f, 0.666667f),
+		XMFLOAT2(0.750000f, 0.111111f),
+		XMFLOAT2(0.125000f, 0.444444f),
+		XMFLOAT2(0.625000f, 0.777778f),
+		XMFLOAT2(0.375000f, 0.222222f),
+		XMFLOAT2(0.875000f, 0.555556f),
+		XMFLOAT2(0.062500f, 0.888889f),
+		XMFLOAT2(0.562500f, 0.037037f),
+		XMFLOAT2(0.312500f, 0.370370f),
+		XMFLOAT2(0.812500f, 0.703704f),
+		XMFLOAT2(0.187500f, 0.148148f),
+		XMFLOAT2(0.687500f, 0.481481f),
+		XMFLOAT2(0.437500f, 0.814815f),
+		XMFLOAT2(0.937500f, 0.259259f),
+		XMFLOAT2(0.031250f, 0.592593f)
+	};
+
+	for (int i = 0; i < 16; ++i)
+	{
+		// Calculate the X component
+		outJitters[i].x = ((HaltonPoints[i].x - 0.5f) / viewSizeX) * 2.0f;
+
+		// Calculate the Y component
+		outJitters[i].y = ((HaltonPoints[i].y - 0.5f) / viewSizeY) * 2.0f;
+	}
 }
 

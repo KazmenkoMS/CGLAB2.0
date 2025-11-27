@@ -62,6 +62,8 @@ cbuffer cbPass : register(b1)
     float gTotalTime;
     float gDeltaTime;
     float4 gAmbientLight;
+    float4x4 gJitteredViewProj;
+    float4x4 prevViewProj;
 };
 
 //---------------------------------------------------------------------------------------
