@@ -46,26 +46,15 @@ VSOut VS(uint vid : SV_VertexID)
     return output;
 }
 
-float2 CalcVelocity(float4 newPos, float4 oldPos, float2 viewSize)
-{
-    newPos.xyz /= newPos.w;
-    oldPos.xyz /= oldPos.w;
-    float2 newUV = newPos.xy * 0.5 + 0.5;
-    float2 oldUV = oldPos.xy * 0.5 + 0.5;
-    
-    newUV.y = 1.0 - newUV.y;
-    oldUV.y = 1.0 - oldUV.y;
-    
-    return newUV - oldUV;
 
-}
 
 PSOut PS(VSOut pin) : SV_Target
 {
     PSOut pout;
-    float2 velocity = VelocityTexture.Sample(gsamPointClamp, pin.TexC);
+    float2 velocity = VelocityTexture.Sample(gsamPointClamp, pin.TexC).xy;
+    float motion = length(velocity);
     float2 prevTexC = pin.TexC - velocity;
-    float4 historyColor = prevFrame.Sample(gsamLinearWrap, prevTexC);
+    float4 historyColor = prevFrame.Sample(gsamLinearClamp, prevTexC);
     float4 currentColor = currFrame.Sample(gsamPointClamp, pin.TexC);
     
     float4 NearColor0 = currFrame.Sample(gsamLinearWrap, pin.TexC, int2(1, 0));
@@ -77,9 +66,13 @@ PSOut PS(VSOut pin) : SV_Target
     float4 BoxMax = max(currentColor, max(NearColor0, max(NearColor1, max(NearColor2, NearColor3))));
     
     historyColor = clamp(historyColor, BoxMin, BoxMax);
+    
+    float motionFactor = saturate(motion * 100.0f); // масштаб под разрешение
+    float adaptiveBlend = lerp(blendFactor, 1.0f, motionFactor);
 
-    pout.BackBuffer = lerp(historyColor, currentColor, blendFactor);
-    pout.HistoryTexture = lerp(historyColor, currentColor, blendFactor);
+    
+    pout.BackBuffer = lerp(historyColor, currentColor, adaptiveBlend);
+    pout.HistoryTexture = lerp(historyColor, currentColor, adaptiveBlend);
     return pout;
     
 }

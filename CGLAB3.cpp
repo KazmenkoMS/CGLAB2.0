@@ -8,6 +8,11 @@
 static int imguiID = 0;
 const int gNumFrameResources = 3;
 float blendfactor = 0.01f;
+
+static int count = 0;
+static float tr = 0.01;
+
+
 // Main application entry point.
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE prevInstance,
 	PSTR cmdLine, int showCmd)
@@ -176,6 +181,8 @@ void CGLAB::Update(const GameTimer& gt)
 		WaitForSingleObject(eventHandle, INFINITE);
 		CloseHandle(eventHandle);
 	}
+
+	
 
 	AnimateMaterials(gt);
 	UpdateObjectCBs(gt);
@@ -389,7 +396,7 @@ void CGLAB::Draw(const GameTimer& gt)
 		mCommandList->SetPipelineState(mPSOs["TAA"].Get());
 		mCommandList->SetGraphicsRootSignature(mTAARootSignature.Get());
 		mCommandList->SetGraphicsRootDescriptorTable(1, mJitteredTexture->Srv());
-		
+
 		if (frameIndex % 2 == 0)
 		{
 			mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(mPrevTexture->Resource(),
@@ -414,7 +421,7 @@ void CGLAB::Draw(const GameTimer& gt)
 		mCommandList->SetGraphicsRootConstantBufferView(2, mCurrFrameResource->TAACB->Resource()->GetGPUVirtualAddress());
 		mCommandList->DrawInstanced(3, 1, 0, 0);
 	}
-	
+
 	// ==========================================
 	// 6. IMGUI Render
 	// ==========================================
@@ -514,6 +521,45 @@ void CGLAB::AnimateMaterials(const GameTimer& gt)
 // Object variables
 void CGLAB::UpdateObjectCBs(const GameTimer& gt)
 {
+
+	for (auto& rItem : mAllRitems)
+	{
+		if (rItem->name == "skull")
+		{
+			count++;
+			if (count > 300)
+			{
+				tr = -tr;
+				count = 0;
+			}
+			XMMATRIX trans = XMMatrixTranslation(tr, 0, 0);
+			XMMATRIX world = XMLoadFloat4x4(&rItem->World);
+			XMStoreFloat4x4(&rItem->PrevWorld, world);
+			world = trans * world;
+			XMStoreFloat4x4(&rItem->World, world);
+			rItem->NumFramesDirty = gNumFrameResources;
+		}
+		else if (rItem->name == "box")
+		{
+			if (count > 300)
+			{
+				tr = -tr;
+				count = 0;
+			}
+			XMMATRIX trans = XMMatrixTranslation(0, tr, 0);
+			XMMATRIX world = XMLoadFloat4x4(&rItem->World);
+			XMStoreFloat4x4(&rItem->PrevWorld, world);
+			world = trans * world;
+			XMStoreFloat4x4(&rItem->World, world);
+			rItem->NumFramesDirty = gNumFrameResources;
+		}
+		else
+		{
+			XMMATRIX world = XMLoadFloat4x4(&rItem->World);
+			XMStoreFloat4x4(&rItem->PrevWorld, world);
+		}
+	}
+
 	auto currObjectCB = mCurrFrameResource->ObjectCB.get();
 	for (auto& e : mAllRitems)
 	{
@@ -522,10 +568,12 @@ void CGLAB::UpdateObjectCBs(const GameTimer& gt)
 		if (e->NumFramesDirty > 0)
 		{
 			XMMATRIX world = XMLoadFloat4x4(&e->World);
+			XMMATRIX prevworld = XMLoadFloat4x4(&e->PrevWorld);
 			XMMATRIX texTransform = XMLoadFloat4x4(&e->TexTransform);
 
 			ObjectConstants objConstants;
 			XMStoreFloat4x4(&objConstants.World, XMMatrixTranspose(world));
+			XMStoreFloat4x4(&objConstants.PrevWorld, XMMatrixTranspose(prevworld));
 			XMStoreFloat4x4(&objConstants.TexTransform, XMMatrixTranspose(texTransform));
 			objConstants.MaterialIndex = e->Mat->MatCBIndex;
 
@@ -558,7 +606,7 @@ void CGLAB::UpdateMainPassCB(const GameTimer& gt)
 	XMStoreFloat4x4(&mMainPassCB.View, XMMatrixTranspose(view));
 	XMStoreFloat4x4(&mMainPassCB.InvView, XMMatrixTranspose(invView));
 	XMStoreFloat4x4(&mMainPassCB.Proj, XMMatrixTranspose(proj));
-	XMStoreFloat4x4(&mMainPassCB.InvProj, XMMatrixTranspose(invProj)); 
+	XMStoreFloat4x4(&mMainPassCB.InvProj, XMMatrixTranspose(invProj));
 	mMainPassCB.PrevViewProj = mMainPassCB.ViewProj;
 	XMStoreFloat4x4(&mMainPassCB.ViewProj, XMMatrixTranspose(viewProj));
 	XMStoreFloat4x4(&mMainPassCB.InvViewProj, XMMatrixTranspose(invViewProj));
@@ -703,7 +751,7 @@ void CGLAB::UpdateLightCBs(const GameTimer& gt)
 void CGLAB::UpdateTAA(const GameTimer& gt)
 {
 	auto TaaCB = mCurrFrameResource->TAACB.get();
-	TaaCB->CopyData(0, mTAAConstants); 
+	TaaCB->CopyData(0, mTAAConstants);
 }
 
 void CGLAB::ImguiUpdate()
@@ -1559,19 +1607,19 @@ void CGLAB::SetLightShapes()
 /*
 RENDER ITEMS
 */
-void CGLAB::CreateRenderItem(std::string name, std::string materialname, int RItemLayer, XMMATRIX& scaling, XMMATRIX& rotation, XMMATRIX& translation, XMMATRIX texTransform, std::string drawargs)
+void CGLAB::CreateRenderItem(std::string objname, std::string geoname, std::string materialname, int RItemLayer, XMMATRIX& scaling, XMMATRIX& rotation, XMMATRIX& translation, XMMATRIX texTransform, std::string drawargs)
 {
 	if (drawargs == "")
 	{
-		for (const auto& drawArg : mGeomMgr->mGeometries[name]->DrawArgs)
+		for (const auto& drawArg : mGeomMgr->mGeometries[geoname]->DrawArgs)
 		{
 			auto ritem_child = std::make_unique<RenderItem>();
 			XMStoreFloat4x4(&ritem_child->World, scaling * rotation * translation);
 			XMStoreFloat4x4(&ritem_child->TexTransform, texTransform);
-			ritem_child->name = name + "_" + drawArg.first;
+			ritem_child->name = objname + "_" + drawArg.first;
 			ritem_child->ObjCBIndex = mAllRitems.size();
 			ritem_child->Mat = mResourceMgr->mMaterials[materialname].get();
-			ritem_child->Geo = mGeomMgr->mGeometries[name].get();
+			ritem_child->Geo = mGeomMgr->mGeometries[geoname].get();
 			ritem_child->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 			ritem_child->IndexCount = ritem_child->Geo->DrawArgs[drawargs].IndexCount;
 			ritem_child->StartIndexLocation = ritem_child->Geo->DrawArgs[drawargs].StartIndexLocation;
@@ -1585,9 +1633,10 @@ void CGLAB::CreateRenderItem(std::string name, std::string materialname, int RIt
 		auto ritem = std::make_unique<RenderItem>();
 		XMStoreFloat4x4(&ritem->World, scaling * rotation * translation);
 		XMStoreFloat4x4(&ritem->TexTransform, texTransform);
+		ritem->name = objname;
 		ritem->ObjCBIndex = mAllRitems.size();
 		ritem->Mat = mResourceMgr->mMaterials[materialname].get();
-		ritem->Geo = mGeomMgr->mGeometries[name].get();
+		ritem->Geo = mGeomMgr->mGeometries[geoname].get();
 		ritem->PrimitiveType = D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST;
 		ritem->IndexCount = ritem->Geo->DrawArgs[drawargs].IndexCount;
 		ritem->StartIndexLocation = ritem->Geo->DrawArgs[drawargs].StartIndexLocation;
@@ -1599,11 +1648,11 @@ void CGLAB::CreateRenderItem(std::string name, std::string materialname, int RIt
 
 void CGLAB::BuildRenderItems()
 {
-	CreateRenderItem("shapeGeo", "sky", (int)RenderLayer::Sky, XMMatrixScaling(5000.0f, 5000.0f, 5000.0f), XMMatrixIdentity(), XMMatrixIdentity(), XMMatrixIdentity(), "sphere");
-	CreateRenderItem("skullGeo", "skullMat", (int)RenderLayer::Opaque, XMMatrixScaling(2.0f, 2.0f, 2.0f), XMMatrixIdentity(), XMMatrixTranslation(0.0f, 3.0f, 0.0f), XMMatrixScaling(1.0f, 1.0f, 1.0f), "Group5732");
-	CreateRenderItem("shapeGeo", "bricks0", (int)RenderLayer::Debug, XMMatrixScaling(1.0f, 1.0f, 1.0f), XMMatrixIdentity(), XMMatrixIdentity(), XMMatrixIdentity(), "quad");
-	CreateRenderItem("shapeGeo", "bricks0", (int)RenderLayer::Opaque, XMMatrixScaling(2.0f, 1.0f, 2.0f), XMMatrixIdentity(), XMMatrixTranslation(0.0f, 0.5f, 0.0f), XMMatrixScaling(1.0f, 0.5f, 1.0f), "box");
-	CreateRenderItem("shapeGeo", "tile0", (int)RenderLayer::Opaque, XMMatrixScaling(1.0f, 1.0f, 1.0f), XMMatrixIdentity(), XMMatrixIdentity(), XMMatrixScaling(8.0f, 8.0f, 1.0f), "grid");
+	CreateRenderItem("skybox", "shapeGeo", "sky", (int)RenderLayer::Sky, XMMatrixScaling(5000.0f, 5000.0f, 5000.0f), XMMatrixIdentity(), XMMatrixIdentity(), XMMatrixIdentity(), "sphere");
+	CreateRenderItem("skull", "skullGeo", "skullMat", (int)RenderLayer::Opaque, XMMatrixScaling(2.0f, 2.0f, 2.0f), XMMatrixIdentity(), XMMatrixTranslation(0.0f, 3.0f, 0.0f), XMMatrixScaling(1.0f, 1.0f, 1.0f), "Group5732");
+	CreateRenderItem("debugquad", "shapeGeo", "bricks0", (int)RenderLayer::Debug, XMMatrixScaling(1.0f, 1.0f, 1.0f), XMMatrixIdentity(), XMMatrixIdentity(), XMMatrixIdentity(), "quad");
+	CreateRenderItem("box", "shapeGeo", "bricks0", (int)RenderLayer::Opaque, XMMatrixScaling(2.0f, 1.0f, 2.0f), XMMatrixIdentity(), XMMatrixTranslation(0.0f, 0.5f, 0.0f), XMMatrixScaling(1.0f, 0.5f, 1.0f), "box");
+	CreateRenderItem("floor", "shapeGeo", "tile0", (int)RenderLayer::Opaque, XMMatrixScaling(1.0f, 1.0f, 1.0f), XMMatrixIdentity(), XMMatrixIdentity(), XMMatrixScaling(8.0f, 8.0f, 1.0f), "grid");
 
 	XMMATRIX scaleIdentity = XMMatrixScaling(1.0f, 1.0f, 1.0f);
 	XMMATRIX rotIdentity = XMMatrixIdentity();
@@ -1619,11 +1668,11 @@ void CGLAB::BuildRenderItems()
 		XMMATRIX leftSphereTranslation = XMMatrixTranslation(-5.0f, 3.5f, -10.0f + i * 5.0f);
 		XMMATRIX rightSphereTranslation = XMMatrixTranslation(+5.0f, 3.5f, -10.0f + i * 5.0f);
 
-		CreateRenderItem(geoName, "bricks0", layer, scaleIdentity, rotIdentity, leftCylTranslation, brickTexTransform, "cylinder");
-		CreateRenderItem(geoName, "bricks0", layer, scaleIdentity, rotIdentity, rightCylTranslation, brickTexTransform, "cylinder");
+		CreateRenderItem("leftcyl", geoName, "bricks0", layer, scaleIdentity, rotIdentity, leftCylTranslation, brickTexTransform, "cylinder");
+		CreateRenderItem("rightcyl", geoName, "bricks0", layer, scaleIdentity, rotIdentity, rightCylTranslation, brickTexTransform, "cylinder");
 
-		CreateRenderItem(geoName, "mirror0", layer, scaleIdentity, rotIdentity, leftSphereTranslation, texIdentity, "sphere");
-		CreateRenderItem(geoName, "mirror0", layer, scaleIdentity, rotIdentity, rightSphereTranslation, texIdentity, "sphere");
+		CreateRenderItem("leftsphere", geoName, "mirror0", layer, scaleIdentity, rotIdentity, leftSphereTranslation, texIdentity, "sphere");
+		CreateRenderItem("rightsphere", geoName, "mirror0", layer, scaleIdentity, rotIdentity, rightSphereTranslation, texIdentity, "sphere");
 	}
 }
 

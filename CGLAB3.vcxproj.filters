@@ -181,15 +181,15 @@
     <Text Include="Shaders\Shadows.hlsl">
       <Filter>Shaders</Filter>
     </Text>
-    <Text Include="Shaders\TAA.hlsl">
-      <Filter>Shaders</Filter>
-    </Text>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Shaders\GeometryPass.hlsl">
       <Filter>Shaders</Filter>
     </FxCompile>
     <FxCompile Include="Shaders\Sky.hlsl">
+      <Filter>Shaders</Filter>
+    </FxCompile>
+    <FxCompile Include="Shaders\TAA.hlsl">
       <Filter>Shaders</Filter>
     </FxCompile>
   </ItemGroup>

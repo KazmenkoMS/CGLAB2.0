@@ -25,6 +25,7 @@ Texture2D gTextureMaps[100] : register(t0);
 cbuffer cbPerObject : register(b0)
 {
     float4x4 gWorld;
+    float4x4 gPrevWorld;
     float4x4 gTexTransform;
     uint gMaterialIndex;
     uint gObjPad0;
@@ -127,7 +128,8 @@ VertexOut VS(VertexIn vin)
     // Transform to world space.
     float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
     vout.PosW = posW.xyz;
-
+    float4 prevPosW = mul(float4(vin.PosL, 1.0f), gPrevWorld);
+    
     // Assumes nonuniform scaling; otherwise, need to use inverse-transpose of world matrix.
     vout.NormalW = mul(vin.NormalL, (float3x3) gWorld);
 	
@@ -135,7 +137,7 @@ VertexOut VS(VertexIn vin)
 
     // Transform to homogeneous clip space.
     vout.PosH = mul(posW, gJitteredViewProj);
-    vout.PrevPosH = mul(posW, prevViewProj);
+    vout.PrevPosH = mul(prevPosW, prevViewProj);
     vout.CurPosH = mul(posW, gViewProj);
 	// Output vertex attributes for interpolation across triangle.
     float4 texC = mul(float4(vin.TexC, 0.0f, 1.0f), gTexTransform);
@@ -146,6 +148,21 @@ VertexOut VS(VertexIn vin)
 	
     return vout;
 }
+
+
+float2 CalcVelocity(float4 newPos, float4 oldPos)
+{
+    oldPos /= oldPos.w;
+    oldPos.xy = (oldPos.xy + 1) / 2.0f;
+    oldPos.y = 1 - oldPos.y;
+    
+    newPos /= newPos.w;
+    newPos.xy = (newPos.xy + 1) / 2.0f;
+    newPos.y = 1 - newPos.y;
+    
+    return (newPos - oldPos).xy;
+}
+
 
 PixelOut PS(VertexOut pin) : SV_Target
 {
@@ -179,17 +196,9 @@ PixelOut PS(VertexOut pin) : SV_Target
 
     // RT2: Мировая позиция (RGB) + Unused
     pout.Position = float4(pin.PosW, 1.0f);
+
     
-    float3 currentPosNDC = pin.CurPosH.xyz / pin.CurPosH.w;
-    float3 prevPosNDC = pin.PrevPosH.xyz / pin.PrevPosH.w;
-    
-    float2 currentUV = currentPosNDC.xy * 0.5f + 0.5f;
-    float2 prevUV = prevPosNDC.xy * 0.5f + 0.5f;
-    
-    currentUV.y = 1.0f - currentUV.y;
-    prevUV.y = 1.0f - prevUV.y;
-    
-    pout.Velocity = currentUV - prevUV;
+    pout.Velocity = CalcVelocity(pin.CurPosH, pin.PrevPosH);
     
     return pout;
 }

@@ -15,6 +15,7 @@ SamplerComparisonState gsamShadow : register(s6);
 cbuffer cbPerObject : register(b0)
 {
     float4x4 gWorld;
+    float4x4 gPrevWorld;
     float4x4 gTexTransform;
     uint gMaterialIndex;
     uint gObjPad0;
@@ -63,6 +64,20 @@ struct PSOut
     float4 CurrentFrame : SV_Target1;
     float2 Velocity : SV_Target2;
 };
+
+float2 CalcVelocity(float4 newPos, float4 oldPos)
+{
+    oldPos /= oldPos.w;
+    oldPos.xy = (oldPos.xy + 1) / 2.0f;
+    oldPos.y = 1 - oldPos.y;
+    
+    newPos /= newPos.w;
+    newPos.xy = (newPos.xy + 1) / 2.0f;
+    newPos.y = 1 - newPos.y;
+    
+    return (newPos - oldPos).xy;
+}
+
 VertexOut VS(VertexIn vin)
 {
 	VertexOut vout;
@@ -88,17 +103,7 @@ PSOut PS(VertexOut pin) : SV_Target
     PSOut pout;
     pout.BackBuffer = gCubeMap.Sample(gsamLinearWrap, pin.PosL);
     pout.CurrentFrame = gCubeMap.Sample(gsamLinearWrap, pin.PosL);
-    float3 currentPosNDC = pin.CurPosH.xyz / pin.CurPosH.w;
-    float3 prevPosNDC = pin.PrevPosH.xyz / pin.PrevPosH.w;
-
-    float2 currentUV = currentPosNDC.xy * 0.5f + 0.5f;
-    float2 prevUV = prevPosNDC.xy * 0.5f + 0.5f;
-    
-    currentUV.y = 1.0f - currentUV.y;
-    prevUV.y = 1.0f - prevUV.y;
-    
-    float2 vel = currentUV - prevUV;
-    pout.Velocity = vel;
+    pout.Velocity = CalcVelocity(pin.CurPosH, pin.PrevPosH);
     return pout;
 }
 

@@ -25,6 +25,7 @@ struct RenderItem
     RenderItem(const RenderItem& rhs) = delete;
 
     XMFLOAT4X4 World = MathHelper::Identity4x4();
+    XMFLOAT4X4 PrevWorld = MathHelper::Identity4x4();
     XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
 
     int NumFramesDirty = gNumFrameResources;
@@ -105,7 +106,7 @@ private:
 	// HELPERS
     void CreatePointLight(XMFLOAT3 pos, XMFLOAT3 color, float faloff_start, float faloff_end, float strength);
     void CreateSpotLight(XMFLOAT3 pos, XMFLOAT3 rot, XMFLOAT3 color, float faloff_start, float faloff_end, float strength, float spotpower);
-    void CreateRenderItem(std::string name, std::string materialname, int RItemLayer, XMMATRIX& scaling, XMMATRIX& rotation, XMMATRIX& translation, XMMATRIX texTransform = XMMatrixIdentity(), std::string drawargs = "");
+    void CreateRenderItem(std::string objname, std::string name, std::string materialname, int RItemLayer, XMMATRIX& scaling, XMMATRIX& rotation, XMMATRIX& translation, XMMATRIX texTransform = XMMatrixIdentity(), std::string drawargs = "");
     void ImguiInit();
 
     std::array<const CD3DX12_STATIC_SAMPLER_DESC, 7> GetStaticSamplers(); // Семплеры
