@@ -11,8 +11,11 @@ void ResourceManager::LoadTextures()
 		"defaultDiffuseMap",
 		"defaultNormalMap",
 		"skyCubeMap",
+		"spaceCubeMap",
 		"skullDiffuse",
-		"skullNormal"
+		"skullNormal",
+		"earthDiffuse",
+		"earthNormal"
 	};
 
 	std::vector<std::wstring> texFilenames =
@@ -23,9 +26,12 @@ void ResourceManager::LoadTextures()
 		L"Textures/tile_nmap.dds",
 		L"Textures/white1x1.dds",
 		L"Textures/default_nmap.dds",
-		L"Textures/desertcube1024.dds",
+		L"Textures/space.dds",
+		L"Textures/space_skybox.dds",
 		L"Textures/skull.dds",
-		L"Textures/skull_nm.dds"
+		L"Textures/skull_nm.dds",
+		L"Textures/earth_diff.dds",
+		L"Textures/earth_nm.dds"
 	};
 
 	for (int i = 0; i < (int)texNames.size(); ++i)
@@ -61,4 +67,6 @@ void ResourceManager::BuildMaterials()
 	CreateMaterial("mirror0", TexOffsets["defaultDiffuseMap"], TexOffsets["defaultNormalMap"], XMFLOAT4(0.0f, 0.0f, 0.0f, 1.0f), XMFLOAT3(0.98f, 0.97f, 0.95f), 0.1f);
 	CreateMaterial("skullMat", TexOffsets["skullDiffuse"], TexOffsets["skullNormal"], XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f), XMFLOAT3(0.f, 0.f, 0.f), 0.7f);
 	CreateMaterial("sky", TexOffsets["skyCubeMap"], TexOffsets["shadow"] + 1, XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f), XMFLOAT3(0.1f, 0.1f, 0.1f), 1.0f);
+	CreateMaterial("space", TexOffsets["spaceCubeMap"], TexOffsets["shadow"] + 1, XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f), XMFLOAT3(0.1f, 0.1f, 0.1f), 1.0f);
+	CreateMaterial("earth", TexOffsets["earthDiffuse"], TexOffsets["earthNormal"], XMFLOAT4(1.0f, 1.0f, 1.0f, 1.0f), XMFLOAT3(0.1f, 0.1f, 0.1f), 1.0f);
 }

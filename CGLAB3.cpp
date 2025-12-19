@@ -68,11 +68,13 @@ bool CGLAB::Initialize()
 	ThrowIfFailed(mCommandList->Reset(mDirectCmdListAlloc.Get(), nullptr));
 
 	// TODO - make full camera initialization in separate method
-	mCamera.SetPosition(0.0f, 2.0f, -15.0f);
+	mCamera.SetPosition(-30.0f, 2.0f, 0.0f);
+	mCamera.RotateY(-3.14f/2.f);
 
 	mGeomMgr = std::make_unique<GeometryManager>();
 	mGeomMgr->BuildBasicGeometry(md3dDevice.Get(), mCommandList.Get());
 	mGeomMgr->BuildGeometryFromFile(md3dDevice.Get(), mCommandList.Get(), "Models/skull.obj", "skullGeo");
+	mGeomMgr->BuildGeometryFromFile(md3dDevice.Get(), mCommandList.Get(), "Models/earth.obj", "earthGeo");
 
 	mResourceMgr = std::make_unique<ResourceManager>();
 	mResourceMgr->Init(md3dDevice.Get(), mCommandList.Get());
@@ -488,24 +490,38 @@ void CGLAB::OnMouseMove(WPARAM btnState, int x, int y)
 		mLastMousePos.x = x;
 		mLastMousePos.y = y;
 	}
-
 }
 
 void CGLAB::OnKeyboardInput(const GameTimer& gt)
 {
 	const float dt = gt.DeltaTime();
+	ImGuiIO& io = ImGui::GetIO();
+
+	if (!io.WantCaptureMouse && io.MouseWheel != 0.0f)
+	{
+		mConfig.CameraWalkSpeed += io.MouseWheel * 2.0f;
+
+		if (mConfig.CameraWalkSpeed < 0.1f)
+			mConfig.CameraWalkSpeed = 0.1f;
+	}
+
+	float currentSpeed = mConfig.CameraWalkSpeed;
+	if (GetAsyncKeyState(VK_SHIFT) & 0x8000)
+	{
+		currentSpeed *= 3.0f; // Ускорение в 3 раза
+	}
 
 	if (GetAsyncKeyState('W') & 0x8000)
-		mCamera.Walk(mConfig.CameraWalkSpeed * dt);
+		mCamera.Walk(currentSpeed * dt);
 
 	if (GetAsyncKeyState('S') & 0x8000)
-		mCamera.Walk(-mConfig.CameraWalkSpeed * dt);
+		mCamera.Walk(-currentSpeed * dt);
 
 	if (GetAsyncKeyState('A') & 0x8000)
-		mCamera.Strafe(-mConfig.CameraWalkSpeed * dt);
+		mCamera.Strafe(-currentSpeed * dt);
 
 	if (GetAsyncKeyState('D') & 0x8000)
-		mCamera.Strafe(mConfig.CameraWalkSpeed * dt);
+		mCamera.Strafe(currentSpeed * dt);
 
 	mCamera.UpdateViewMatrix();
 }
@@ -1561,7 +1577,7 @@ void CGLAB::BuildLights()
 	ambient->LightCBIndex = static_cast<int>(mLights.size());
 	ambient->Position = { 3.0f, 0.0f, 3.0f };
 	ambient->Color = { 1,1,1 }; // need only x
-	ambient->Strength = 0.5;
+	ambient->Strength = 0.1;
 	ambient->type = 0;
 	XMStoreFloat4x4(&ambient->gWorld, XMMatrixTranspose(XMMatrixTranslation(0, 0, 0) * XMMatrixScaling(1000, 1000, 1000)));
 	mLights.push_back(std::move(ambient));
@@ -1648,8 +1664,9 @@ void CGLAB::CreateRenderItem(std::string objname, std::string geoname, std::stri
 
 void CGLAB::BuildRenderItems()
 {
-	CreateRenderItem("skybox", "shapeGeo", "sky", (int)RenderLayer::Sky, XMMatrixScaling(5000.0f, 5000.0f, 5000.0f), XMMatrixIdentity(), XMMatrixIdentity(), XMMatrixIdentity(), "sphere");
+	CreateRenderItem("skybox", "shapeGeo", "space", (int)RenderLayer::Sky, XMMatrixScaling(5000.0f, 5000.0f, 5000.0f), XMMatrixIdentity(), XMMatrixIdentity(), XMMatrixIdentity(), "sphere");
 	CreateRenderItem("skull", "skullGeo", "skullMat", (int)RenderLayer::Opaque, XMMatrixScaling(2.0f, 2.0f, 2.0f), XMMatrixIdentity(), XMMatrixTranslation(0.0f, 3.0f, 0.0f), XMMatrixScaling(1.0f, 1.0f, 1.0f), "Group5732");
+	CreateRenderItem("earth", "earthGeo", "earth", (int)RenderLayer::Opaque, XMMatrixScaling(5, 5, 5), XMMatrixIdentity(), XMMatrixTranslation(-100.0f, 3.0f, 0.0f), XMMatrixScaling(1.0f, 1.0f, 1.0f), "Earth_Surface.mat_0");
 	CreateRenderItem("debugquad", "shapeGeo", "bricks0", (int)RenderLayer::Debug, XMMatrixScaling(1.0f, 1.0f, 1.0f), XMMatrixIdentity(), XMMatrixIdentity(), XMMatrixIdentity(), "quad");
 	CreateRenderItem("box", "shapeGeo", "bricks0", (int)RenderLayer::Opaque, XMMatrixScaling(2.0f, 1.0f, 2.0f), XMMatrixIdentity(), XMMatrixTranslation(0.0f, 0.5f, 0.0f), XMMatrixScaling(1.0f, 0.5f, 1.0f), "box");
 	CreateRenderItem("floor", "shapeGeo", "tile0", (int)RenderLayer::Opaque, XMMatrixScaling(1.0f, 1.0f, 1.0f), XMMatrixIdentity(), XMMatrixIdentity(), XMMatrixScaling(8.0f, 8.0f, 1.0f), "grid");
