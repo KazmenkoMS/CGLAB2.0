@@ -267,6 +267,15 @@ void D3D12MeshletRender::LoadAssets()
         streamDesc.SizeInBytes                   = sizeof(psoStream);
 
         ThrowIfFailed(m_device->CreatePipelineState(&streamDesc, IID_PPV_ARGS(&m_pipelineState)));
+
+        // wireframe mode 
+		auto wirePsoDesc = psoDesc;
+        wirePsoDesc.RasterizerState.FillMode = D3D12_FILL_MODE_WIREFRAME;
+        auto wirePsoStream = CD3DX12_PIPELINE_MESH_STATE_STREAM(wirePsoDesc);
+        D3D12_PIPELINE_STATE_STREAM_DESC streamDescWire;
+        streamDescWire.pPipelineStateSubobjectStream = &wirePsoStream;
+        streamDescWire.SizeInBytes = sizeof(wirePsoStream);
+        ThrowIfFailed(m_device->CreatePipelineState(&streamDescWire, IID_PPV_ARGS(&m_pipelineState_Wire)));
     }
 
     // Create the command list.
@@ -351,7 +360,8 @@ void D3D12MeshletRender::OnRender()
     // Execute the command list.
     ID3D12CommandList* ppCommandLists[] = { m_commandList.Get() };
     m_commandQueue->ExecuteCommandLists(_countof(ppCommandLists), ppCommandLists);
-
+    
+    
     // Present the frame.
     ThrowIfFailed(m_swapChain->Present(1, 0));
 
@@ -370,6 +380,10 @@ void D3D12MeshletRender::OnDestroy()
 void D3D12MeshletRender::OnKeyDown(UINT8 key)
 {
     m_camera.OnKeyDown(key);
+    if (key == 'T')
+    {
+		bUseWireframe = !bUseWireframe;
+    }
 }
 
 void D3D12MeshletRender::OnKeyUp(UINT8 key)
@@ -388,6 +402,11 @@ void D3D12MeshletRender::PopulateCommandList()
     // list, that command list can then be reset at any time and must be before 
     // re-recording.
     ThrowIfFailed(m_commandList->Reset(m_commandAllocators[m_frameIndex].Get(), m_pipelineState.Get()));
+
+    if (bUseWireframe)
+    {
+        m_commandList->SetPipelineState(m_pipelineState_Wire.Get());
+    }
 
     // Set necessary state.
     m_commandList->SetGraphicsRootSignature(m_rootSignature.Get());
