@@ -219,6 +219,9 @@
       <FileType>Document</FileType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.1</ShaderModel>
     </Text>
+    <Text Include="Shaders\Atmosphere.hlsl">
+      <FileType>Document</FileType>
+    </Text>
     <FxCompile Include="Shaders\Sky.hlsl">
       <FileType>Document</FileType>
       <ShaderModel Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">5.1</ShaderModel>

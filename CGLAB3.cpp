@@ -85,6 +85,7 @@ bool CGLAB::Initialize()
 	BuildGeometryRootSignature();
 	BuildLightingRootSignature();
 	BuildTAARootSignature();
+	BuildAtmosphereRootSignature();
 	BuildDescriptorHeaps();
 	mResourceMgr->BuildMaterials();
 
@@ -422,7 +423,37 @@ void CGLAB::Draw(const GameTimer& gt)
 
 		mCommandList->SetGraphicsRootConstantBufferView(2, mCurrFrameResource->TAACB->Resource()->GetGPUVirtualAddress());
 		mCommandList->DrawInstanced(3, 1, 0, 0);
+
+
+		mCommandList->SetPipelineState(mPSOs["atmosphere"].Get());
+		mCommandList->SetGraphicsRootSignature(mAtmosphereRootSignature.Get());
+		mCommandList->OMSetRenderTargets(1, &CurrentBackBufferView(), false, nullptr);
+		if (frameIndex % 2 == 0)
+		{
+			mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(mCurrentTexture->Resource(),
+				D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_GENERIC_READ));
+
+			mCommandList->SetGraphicsRootDescriptorTable(0, mCurrentTexture->Srv());
+			mCommandList->DrawInstanced(3, 1, 0, 0);
+
+			mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(mCurrentTexture->Resource(),
+				D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_RENDER_TARGET));
+		}
+		else
+		{
+			mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(mPrevTexture->Resource(),
+				D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_GENERIC_READ));
+
+			mCommandList->SetGraphicsRootDescriptorTable(0, mPrevTexture->Srv());
+			mCommandList->DrawInstanced(3, 1, 0, 0);
+
+			mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(mPrevTexture->Resource(),
+				D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_RENDER_TARGET));
+		}
+
+
 	}
+
 
 	// ==========================================
 	// 6. IMGUI Render
@@ -1106,6 +1137,9 @@ void CGLAB::BuildShadersAndInputLayout()
 	mShaders["TaaVS"] = d3dUtil::CompileShader(L"Shaders\\TAA.hlsl", nullptr, "VS", "vs_5_1");
 	mShaders["TaaPS"] = d3dUtil::CompileShader(L"Shaders\\TAA.hlsl", nullptr, "PS", "ps_5_1");
 
+	mShaders["atmosphereVS"] = d3dUtil::CompileShader(L"Shaders\\Atmosphere.hlsl", nullptr, "VS", "vs_5_1");
+	mShaders["atmospherePS"] = d3dUtil::CompileShader(L"Shaders\\Atmosphere.hlsl", nullptr, "PS", "ps_5_1");
+
 	mInputLayout =
 	{
 		{ "POSITION", 0, DXGI_FORMAT_R32G32B32_FLOAT, 0, 0, D3D12_INPUT_CLASSIFICATION_PER_VERTEX_DATA, 0 },
@@ -1200,6 +1234,27 @@ void CGLAB::BuildPSOs()
 		mShaders["skyPS"]->GetBufferSize()
 	};
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&skyPsoDesc, IID_PPV_ARGS(&mPSOs["sky"])));
+
+	//
+	// PSO for atmosphere
+	//
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC atmospherePsoDesc = skyPsoDesc;
+	atmospherePsoDesc.NumRenderTargets = 1;
+	atmospherePsoDesc.RTVFormats[0] = mBackBufferFormat;
+	atmospherePsoDesc.RTVFormats[1] = DXGI_FORMAT_UNKNOWN;
+	atmospherePsoDesc.RTVFormats[2] = DXGI_FORMAT_UNKNOWN;
+	atmospherePsoDesc.pRootSignature = mAtmosphereRootSignature.Get();
+	atmospherePsoDesc.VS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["atmosphereVS"]->GetBufferPointer()),
+		mShaders["atmosphereVS"]->GetBufferSize()
+	};
+	atmospherePsoDesc.PS =
+	{
+		reinterpret_cast<BYTE*>(mShaders["atmospherePS"]->GetBufferPointer()),
+		mShaders["atmospherePS"]->GetBufferSize()
+	};
+	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&atmospherePsoDesc, IID_PPV_ARGS(&mPSOs["atmosphere"])));
 
 	//
 	// PSO for Geometry pass.
@@ -1311,6 +1366,9 @@ void CGLAB::BuildPSOs()
 		mShaders["TaaPS"]->GetBufferSize()
 	};
 	ThrowIfFailed(md3dDevice->CreateGraphicsPipelineState(&taaPsoDesc, IID_PPV_ARGS(&mPSOs["TAA"])));
+
+	
+
 
 }
 
@@ -1530,6 +1588,39 @@ void CGLAB::BuildTAARootSignature()
 		serializedRootSig->GetBufferPointer(),
 		serializedRootSig->GetBufferSize(),
 		IID_PPV_ARGS(mTAARootSignature.GetAddressOf())));
+}
+
+void CGLAB::BuildAtmosphereRootSignature()
+{
+
+	CD3DX12_DESCRIPTOR_RANGE FrameTex;
+	FrameTex.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
+
+	CD3DX12_ROOT_PARAMETER slotRootParameter[1];
+
+	slotRootParameter[0].InitAsDescriptorTable(1, &FrameTex);
+
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(1, slotRootParameter,
+		(UINT)GetStaticSamplers().size(), GetStaticSamplers().data(),
+		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
+
+	ComPtr<ID3DBlob> serializedRootSig = nullptr;
+	ComPtr<ID3DBlob> errorBlob = nullptr;
+	HRESULT hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1,
+		serializedRootSig.GetAddressOf(), errorBlob.GetAddressOf());
+
+	if (errorBlob != nullptr)
+	{
+		::OutputDebugStringA((char*)errorBlob->GetBufferPointer());
+	}
+	ThrowIfFailed(hr);
+
+	ThrowIfFailed(md3dDevice->CreateRootSignature(
+		0,
+		serializedRootSig->GetBufferPointer(),
+		serializedRootSig->GetBufferSize(),
+		IID_PPV_ARGS(mAtmosphereRootSignature.GetAddressOf())));
+
 }
 
 

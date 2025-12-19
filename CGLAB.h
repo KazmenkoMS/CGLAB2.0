@@ -92,6 +92,7 @@ private:
     void BuildGeometryRootSignature();
     void BuildLightingRootSignature();
     void BuildTAARootSignature();
+    void BuildAtmosphereRootSignature();
     void BuildDescriptorHeaps();
     void BuildShadersAndInputLayout();
     void BuildPSOs();
@@ -132,6 +133,7 @@ private:
     SIGNATURES AND PSOS
     */
     ComPtr<ID3D12RootSignature> mRootSignature = nullptr;
+    ComPtr<ID3D12RootSignature> mAtmosphereRootSignature;
     ComPtr<ID3D12RootSignature> mShadowsRootSignature;
     ComPtr<ID3D12RootSignature> mGeometryRootSignature;
     ComPtr<ID3D12RootSignature> mLightingRootSignature;

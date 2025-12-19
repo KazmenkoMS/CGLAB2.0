@@ -181,6 +181,9 @@
     <Text Include="Shaders\Shadows.hlsl">
       <Filter>Shaders</Filter>
     </Text>
+    <Text Include="Shaders\Atmosphere.hlsl">
+      <Filter>Shaders</Filter>
+    </Text>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="Shaders\GeometryPass.hlsl">
