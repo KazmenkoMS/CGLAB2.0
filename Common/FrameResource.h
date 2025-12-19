@@ -79,6 +79,18 @@ struct TAAConstants
 
 };
 
+struct AtmosphereConstants
+{
+    DirectX::XMFLOAT3 sunDirection;
+    float padding = 0;
+    DirectX::XMFLOAT3 planetCenter;
+    float padding1 = 0;
+    float planetRadius = 1.f;
+    float atmosphereRadius = 2.f;
+    float densityFalloff = 3.f;
+};
+
+
 struct Vertex
 {
     DirectX::XMFLOAT3 Pos;
@@ -109,6 +121,7 @@ public:
     std::unique_ptr<UploadBuffer<LightConstants>> LightCB = nullptr;
     std::unique_ptr<UploadBuffer<ShadowConstants>> ShadowCB = nullptr;
     std::unique_ptr<UploadBuffer<TAAConstants>> TAACB = nullptr;
+    std::unique_ptr<UploadBuffer<AtmosphereConstants>> AtmosphereCB = nullptr;
 	std::unique_ptr<UploadBuffer<MaterialData>> MaterialBuffer = nullptr;
 
     // Fence value to mark commands up to this fence point.  This lets us

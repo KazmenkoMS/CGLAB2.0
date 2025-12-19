@@ -81,6 +81,7 @@ private:
     void UpdateMaterialBuffer(const GameTimer& gt);
     void UpdateMainPassCB(const GameTimer& gt);
     void UpdateLightCBs(const GameTimer& gt);
+    void UpdateAtmosphereCB(const GameTimer& gt);
 	void UpdateTAA(const GameTimer& gt);
     void ImguiUpdate();
 
@@ -163,6 +164,7 @@ private:
     std::vector<RenderItem*> mRitemLayer[(int)RenderLayer::Count];
     PassConstants mMainPassCB; 
 	TAAConstants mTAAConstants;
+	AtmosphereConstants mAtmosphereConstants;
     /*
     DEFERRED RENDERING
     */

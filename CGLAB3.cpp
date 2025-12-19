@@ -193,6 +193,7 @@ void CGLAB::Update(const GameTimer& gt)
 	UpdateMainPassCB(gt);
 	UpdateLightCBs(gt);
 	UpdateTAA(gt);
+	UpdateAtmosphereCB(gt);
 	ImguiUpdate();
 }
 
@@ -428,6 +429,7 @@ void CGLAB::Draw(const GameTimer& gt)
 		mCommandList->SetPipelineState(mPSOs["atmosphere"].Get());
 		mCommandList->SetGraphicsRootSignature(mAtmosphereRootSignature.Get());
 		mCommandList->OMSetRenderTargets(1, &CurrentBackBufferView(), false, nullptr);
+		mCommandList->SetGraphicsRootConstantBufferView(1, mCurrFrameResource->AtmosphereCB->Resource()->GetGPUVirtualAddress());
 		if (frameIndex % 2 == 0)
 		{
 			mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(mCurrentTexture->Resource(),
@@ -795,6 +797,17 @@ void CGLAB::UpdateLightCBs(const GameTimer& gt)
 	}
 }
 
+void CGLAB::UpdateAtmosphereCB(const GameTimer& gt)
+{
+	auto AtmosphereCB = mCurrFrameResource->AtmosphereCB.get();
+	mAtmosphereConstants.sunDirection = mLights[1]->Direction;
+	/*mAtmosphereConstants.planetCenter = XMFLOAT3(0.0f, -2.0f, 0.0f);
+	mAtmosphereConstants.planetRadius = 1.0f;
+	mAtmosphereConstants.atmosphereRadius = 2.0f;
+	mAtmosphereConstants.densityFalloff = 3.0f;*/
+	AtmosphereCB->CopyData(0, mAtmosphereConstants);
+}
+
 void CGLAB::UpdateTAA(const GameTimer& gt)
 {
 	auto TaaCB = mCurrFrameResource->TAACB.get();
@@ -896,6 +909,14 @@ void CGLAB::ImguiUpdate()
 		{
 			ImGui::DragFloat("Blendfactor", &mTAAConstants.blendFactor, 0.01f, 0.0f, 1.0f);
 			ImGui::Checkbox("Use TAA?", &useTaa);
+			ImGui::EndTabItem();
+		}
+		if (ImGui::BeginTabItem("Atmosphere"))
+		{
+			ImGui::DragFloat3("Planet Center", &mAtmosphereConstants.planetCenter.x, 1.0f);
+			ImGui::DragFloat("Planet Radius", &mAtmosphereConstants.planetRadius, 10.0f, 0.0f, 1000000.0f);
+			ImGui::DragFloat("Atmosphere Radius", &mAtmosphereConstants.atmosphereRadius, 10.0f, 0.0f, 1000000.0f);
+			ImGui::SliderFloat("Density Falloff", &mAtmosphereConstants.densityFalloff, 0.0f, 15.0f);
 			ImGui::EndTabItem();
 		}
 		ImGui::EndTabBar();
@@ -1596,11 +1617,12 @@ void CGLAB::BuildAtmosphereRootSignature()
 	CD3DX12_DESCRIPTOR_RANGE FrameTex;
 	FrameTex.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
 
-	CD3DX12_ROOT_PARAMETER slotRootParameter[1];
+	CD3DX12_ROOT_PARAMETER slotRootParameter[2];
 
 	slotRootParameter[0].InitAsDescriptorTable(1, &FrameTex);
+	slotRootParameter[1].InitAsConstantBufferView(0); // Atmosphere CB
 
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(1, slotRootParameter,
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(2, slotRootParameter,
 		(UINT)GetStaticSamplers().size(), GetStaticSamplers().data(),
 		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 

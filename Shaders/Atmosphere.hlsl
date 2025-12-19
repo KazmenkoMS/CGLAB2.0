@@ -1,3 +1,4 @@
+
 Texture2D frameTex : register(t0);
 
 SamplerState gsamPointWrap : register(s0);
@@ -8,16 +9,30 @@ SamplerState gsamAnisotropicWrap : register(s4);
 SamplerState gsamAnisotropicClamp : register(s5);
 SamplerComparisonState gsamShadow : register(s6);
 
+cbuffer cbAtmosphere : register(b0)
+{
+    float3 sunDirection;
+    float padding;
+    float3 planetCenter;
+    float padding1;
+    float planetRadius;
+    float atmosphereRadius;
+    float densityFalloff;
+}
+
 struct VSOut
 {
     float4 PosH : SV_POSITION;
     float2 TexC : TEXCOORD;
 };
 
+
+
 VSOut VS(uint vid : SV_VertexID)
 {
     VSOut output;
     
+    // Координаты вершин полноэкранного треугольника
     float2 positions[3] =
     {
         float2(-1, -1),
@@ -33,14 +48,8 @@ VSOut VS(uint vid : SV_VertexID)
 
 float4 PS(VSOut pin) : SV_Target
 {
-    // 1. Получаем исходный цвет из текстуры
     float4 color = frameTex.Sample(gsamLinearClamp, pin.TexC);
+    color += 0 * sunDirection.x * padding * planetCenter.x * padding1 * planetRadius * atmosphereRadius * densityFalloff;
+    return color;
 
-    // 2. Стандартные коэффициенты для перевода в ЧБ (Luminance)
-    // Эти значения (0.299, 0.587, 0.114) наиболее естественны для глаза
-    float grayscale = dot(color.rgb, float3(0.299f, 0.587f, 0.114f));
-
-    // 3. Возвращаем новый цвет, где R, G и B равны вычисленной яркости
-    // Альфа-канал оставляем без изменений
-    return float4(grayscale, grayscale, grayscale, color.a);
 }

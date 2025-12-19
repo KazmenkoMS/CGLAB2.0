@@ -12,6 +12,7 @@ FrameResource::FrameResource(ID3D12Device* device, UINT passCount, UINT objectCo
     ObjectCB = std::make_unique<UploadBuffer<ObjectConstants>>(device, objectCount, true);
     ShadowCB = std::make_unique<UploadBuffer<ShadowConstants>>(device, lightcount, true);
     LightCB = std::make_unique<UploadBuffer<LightConstants>>(device, lightcount, true);
+    AtmosphereCB = std::make_unique<UploadBuffer<AtmosphereConstants>>(device, passCount, true);
 }
 
 FrameResource::~FrameResource()
