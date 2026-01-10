@@ -65,17 +65,11 @@ struct PSOut
     float2 Velocity : SV_Target2;
 };
 
+
 float2 CalcVelocity(float4 newPos, float4 oldPos)
 {
-    oldPos /= oldPos.w;
-    oldPos.xy = (oldPos.xy + 1) / 2.0f;
-    oldPos.y = 1 - oldPos.y;
     
-    newPos /= newPos.w;
-    newPos.xy = (newPos.xy + 1) / 2.0f;
-    newPos.y = 1 - newPos.y;
-    
-    return (newPos - oldPos).xy;
+    return (newPos - oldPos).xy * float2(0.5f, -0.5f);
 }
 
 VertexOut VS(VertexIn vin)
@@ -87,14 +81,16 @@ VertexOut VS(VertexIn vin)
 	
 	// Transform to world space.
 	float4 posW = mul(float4(vin.PosL, 1.0f), gWorld);
-
+	float4 prevposW = mul(float4(vin.PosL, 1.0f), gPrevWorld);
+    
 	// Always center sky about camera.
 	posW.xyz += gEyePosW;
+    prevposW.xyz += gEyePosW;
 
 	// Set z = w so that z/w = 1 (i.e., skydome always on far plane).
-	vout.PosH = mul(posW, gViewProj).xyww;
-    vout.CurPosH = mul(posW, gViewProj).xyww;
-    vout.PrevPosH = mul(posW, prevViewProj).xyww;
+    vout.PosH = mul(posW, gJitteredViewProj).xyww;
+    vout.CurPosH = mul(posW, gViewProj).xywz;
+    vout.PrevPosH = mul(prevposW, prevViewProj).xywz;
 	return vout;
 }
 

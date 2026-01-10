@@ -94,6 +94,7 @@ bool CGLAB::Initialize()
 	mCurrentTexture = std::make_unique<ShaderTexture>(md3dDevice.Get(), mClientWidth, mClientHeight);
 	mJitteredTexture = std::make_unique<ShaderTexture>(md3dDevice.Get(), mClientWidth, mClientHeight);
 	mVelocityTexture = std::make_unique<ShaderTexture>(md3dDevice.Get(), mClientWidth, mClientHeight);
+	//mVelocityTexture->mFormat = DXGI_FORMAT_R16G16_FLOAT;
 	BuildRenderItems();
 	BuildFrameResources();
 	BuildPSOs();
@@ -159,6 +160,7 @@ void CGLAB::OnResize()
 	mCurrentTexture = std::make_unique<ShaderTexture>(md3dDevice.Get(), mClientWidth, mClientHeight);
 	mJitteredTexture = std::make_unique<ShaderTexture>(md3dDevice.Get(), mClientWidth, mClientHeight);
 	mVelocityTexture = std::make_unique<ShaderTexture>(md3dDevice.Get(), mClientWidth, mClientHeight);
+	//mVelocityTexture->mFormat = DXGI_FORMAT_R16G16_FLOAT;
 	BuildTAATextures();
 	mCamera.SetLens(mConfig.CameraFovY, AspectRatio(), mConfig.CameraNearZ, mConfig.CameraFarZ);
 }
@@ -239,7 +241,9 @@ void CGLAB::Draw(const GameTimer& gt)
 		rtvHandles[i] = mGBuffer->Rtv(i);
 		mCommandList->ClearRenderTargetView(rtvHandles[i], clearColor, 0, nullptr);
 	}
-	mCommandList->ClearRenderTargetView(mVelocityTexture->Rtv(), Colors::Black, 0, nullptr);
+	const float clearVelocity[4] = { 0.0f, 0.0f, 0.0f, 0.0f };
+
+	mCommandList->ClearRenderTargetView(mVelocityTexture->Rtv(), clearVelocity, 0, nullptr);
 	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(mVelocityTexture->Resource(),
 		D3D12_RESOURCE_STATE_GENERIC_READ, D3D12_RESOURCE_STATE_RENDER_TARGET));
 	rtvHandles[3] = mVelocityTexture->Rtv();
@@ -430,7 +434,6 @@ void CGLAB::Draw(const GameTimer& gt)
 	mCommandList->SetDescriptorHeaps(_countof(imguiheaps), imguiheaps);
 	ImGui::Render();
 	ImGui_ImplDX12_RenderDrawData(ImGui::GetDrawData(), mCommandList.Get());
-
 	// ==========================================
 	// 7. Final Presentation
 	// ==========================================

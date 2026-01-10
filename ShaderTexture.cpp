@@ -23,8 +23,8 @@ void ShaderTexture::BuildResource()
 	float clearColor[] = { 0.0f, 0.0f, 0.0f, 1.0f };
 	CD3DX12_CLEAR_VALUE optClear(DXGI_FORMAT_UNKNOWN, clearColor);
 
-	texDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
-	optClear.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+	texDesc.Format = mFormat;
+	optClear.Format = mFormat;
 	ThrowIfFailed(md3dDevice->CreateCommittedResource(
 		&CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_DEFAULT),
 		D3D12_HEAP_FLAG_NONE,

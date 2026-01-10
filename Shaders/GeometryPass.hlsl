@@ -92,7 +92,7 @@ struct PixelOut
     float4 AlbedoRoughness : SV_Target0; // RT0
     float4 NormalFresnel : SV_Target1; // RT1
     float4 Position : SV_Target2; // RT2
-    float2 Velocity : SV_Target3;
+    float4 Velocity : SV_Target3;
 };
 
 //---------------------------------------------------------------------------------------
@@ -138,7 +138,9 @@ VertexOut VS(VertexIn vin)
     // Transform to homogeneous clip space.
     vout.PosH = mul(posW, gJitteredViewProj);
     vout.PrevPosH = mul(prevPosW, prevViewProj);
+    vout.PrevPosH /= vout.PrevPosH.w;
     vout.CurPosH = mul(posW, gViewProj);
+    vout.CurPosH /= vout.CurPosH.w;
 	// Output vertex attributes for interpolation across triangle.
     float4 texC = mul(float4(vin.TexC, 0.0f, 1.0f), gTexTransform);
     vout.TexC = mul(texC, matData.MatTransform).xy;
@@ -152,15 +154,8 @@ VertexOut VS(VertexIn vin)
 
 float2 CalcVelocity(float4 newPos, float4 oldPos)
 {
-    oldPos /= oldPos.w;
-    oldPos.xy = (oldPos.xy + 1) / 2.0f;
-    oldPos.y = 1 - oldPos.y;
     
-    newPos /= newPos.w;
-    newPos.xy = (newPos.xy + 1) / 2.0f;
-    newPos.y = 1 - newPos.y;
-    
-    return (newPos - oldPos).xy;
+    return (newPos - oldPos).xy * float2(0.5f, -0.5f);
 }
 
 
@@ -196,9 +191,8 @@ PixelOut PS(VertexOut pin) : SV_Target
 
     // RT2: Мировая позиция (RGB) + Unused
     pout.Position = float4(pin.PosW, 1.0f);
-
     
-    pout.Velocity = CalcVelocity(pin.CurPosH, pin.PrevPosH);
+    pout.Velocity = float4(CalcVelocity(pin.CurPosH, pin.PrevPosH), 0, 0);
     
     return pout;
 }
