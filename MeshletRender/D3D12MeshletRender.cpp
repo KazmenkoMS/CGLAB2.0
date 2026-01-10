@@ -8,7 +8,7 @@
 // PURPOSE, MERCHANTABILITY, OR NON-INFRINGEMENT.
 //
 //*********************************************************
-
+//
 #include "stdafx.h"
 #include "D3D12MeshletRender.h"
 #include <wincodec.h>
