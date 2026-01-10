@@ -19,13 +19,17 @@ struct Constants
 
 struct VertexOut
 {
-    float4 PositionHS   : SV_Position;
-    float3 PositionVS   : POSITION0;
-    float3 Normal       : NORMAL0;
-    uint   MeshletIndex : COLOR0;
+    float4 PositionHS : SV_Position;
+    float3 PositionVS : POSITION0;
+    float3 Normal : NORMAL0;
+    float2 TexCoord : TEXCOORD0;
+    uint MeshletIndex : COLOR0;
 };
 
 ConstantBuffer<Constants> Globals : register(b0);
+
+Texture2D gAlbedo : register(t4);
+SamplerState gSamp : register(s0);
 
 float4 main(VertexOut input) : SV_TARGET
 {
@@ -35,6 +39,7 @@ float4 main(VertexOut input) : SV_TARGET
 
     float3 diffuseColor;
     float shininess;
+
     if (Globals.DrawMeshlets)
     {
         uint meshletIndex = input.MeshletIndex;
@@ -46,7 +51,10 @@ float4 main(VertexOut input) : SV_TARGET
     }
     else
     {
-        diffuseColor = 0.8;
+        float2 uv = input.TexCoord;
+        uv.y = 1.0 - uv.y;
+
+        diffuseColor = gAlbedo.Sample(gSamp, uv).rgb;
         shininess = 64.0;
     }
 
@@ -61,7 +69,7 @@ float4 main(VertexOut input) : SV_TARGET
     blinnTerm = cosAngle != 0.0 ? blinnTerm : 0.0;
     blinnTerm = pow(blinnTerm, shininess);
 
-    float3 finalColor = (cosAngle + blinnTerm + ambientIntensity) * float4(1, 1, 1, 1);
+    float3 finalColor = (cosAngle + blinnTerm + ambientIntensity) * diffuseColor;
 
     return float4(finalColor, 1);
 }
