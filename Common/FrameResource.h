@@ -10,7 +10,7 @@ struct ObjectConstants
     DirectX::XMFLOAT4X4 PrevWorld;
 	DirectX::XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
 	UINT     MaterialIndex;
-	UINT     ObjPad0;
+	UINT     IsWallhack = 0;
 	UINT     ObjPad1;
 	UINT     ObjPad2;
 };

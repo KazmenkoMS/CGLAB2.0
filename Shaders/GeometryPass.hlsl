@@ -28,7 +28,7 @@ cbuffer cbPerObject : register(b0)
     float4x4 gPrevWorld;
     float4x4 gTexTransform;
     uint gMaterialIndex;
-    uint gObjPad0;
+    uint gIsWallhack;
     uint gObjPad1;
     uint gObjPad2;
 };
@@ -145,6 +145,11 @@ VertexOut VS(VertexIn vin)
     float4 texC = mul(float4(vin.TexC, 0.0f, 1.0f), gTexTransform);
     vout.TexC = mul(texC, matData.MatTransform).xy;
 
+    if (gIsWallhack == 1)
+    {
+        vout.PosH.z = 0.0f;
+    }
+    
     // Generate projective tex-coords to project shadow map onto scene.
     vout.ShadowPosH = mul(posW, gShadowTransform);
 	
@@ -174,13 +179,16 @@ PixelOut PS(VertexOut pin) : SV_Target
     // 1. Sample Albedo
     float4 texColor = gTextureMaps[NonUniformResourceIndex(diffuseMapIndex)].Sample(gsamAnisotropicWrap, pin.TexC);
     diffuseAlbedo *= texColor;
-    
+    if (gIsWallhack == 1)
+    {
+        diffuseAlbedo = float4(1.0f, 1.0f, 0.0f, 1.0f);
+    }
 #ifdef ALPHA_TEST
     clip(diffuseAlbedo.a - 0.1f);
 #endif
 
 	// 2. Normal Mapping
-    pin.NormalW = normalize(pin.NormalW);
+        pin.NormalW = normalize(pin.NormalW);
     float4 normalMapSample = gTextureMaps[NonUniformResourceIndex(normalMapIndex)].Sample(gsamAnisotropicWrap, pin.TexC);
     float3 bumpedNormalW = NormalSampleToWorldSpace(normalMapSample.rgb, pin.NormalW, pin.TangentW);
     // RT0: Цвет (RGB) + Шероховатость (A)
@@ -192,7 +200,7 @@ PixelOut PS(VertexOut pin) : SV_Target
     // RT2: Мировая позиция (RGB) + Unused
     pout.Position = float4(pin.PosW, 1.0f);
     
-    pout.Velocity = float4(CalcVelocity(pin.CurPosH, pin.PrevPosH), 0, 0);
+    pout.Velocity = float4(CalcVelocity(pin.CurPosH, pin.PrevPosH), gIsWallhack, 0);
     
     return pout;
 }

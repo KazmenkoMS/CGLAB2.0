@@ -39,11 +39,11 @@ cbuffer LightConstants : register(b1)
 }
 TextureCube gCubeMap : register(t0);
 Texture2D gShadowMap : register(t1);
-
+Texture2D gVelocity : register(t2); // Velocity
 // Входные текстуры G-Buffer (Привяжем их в слоты t3, t4, t5 в новом Root Signature)
-Texture2D gGBuffer0 : register(t2); // Albedo + Roughness
-Texture2D gGBuffer1 : register(t3); // Normal + Fresnel
-Texture2D gGBuffer2 : register(t4); // Position
+Texture2D gGBuffer0 : register(t3); // Albedo + Roughness
+Texture2D gGBuffer1 : register(t4); // Normal + Fresnel
+Texture2D gGBuffer2 : register(t5); // Position
 
 
 struct MaterialData
@@ -255,7 +255,39 @@ PixelOut PS(VSOut pin) : SV_Target
             break;
     }
     
-  
+    // calculating edge otline from velocity buffer
+    float2 uv = pin.TexC;
+    uv.y = 1.0f - uv.y; 
+    float2 invRes = gInvRenderTargetSize;
+    float centerMask = gVelocity.Sample(gsamPointClamp, uv).z;
+    
+    int thickness = 3;
+    bool isEdge = false;
+   
+    [unroll(7)] 
+    for (int x = -thickness; x <= thickness; ++x)
+    {
+        for (int y = -thickness; y <= thickness; ++y)
+        {
+            if (x == 0 && y == 0)
+                continue;
+            
+            float2 offset = float2(x, y) * invRes;
+            float neighborMask = gVelocity.Sample(gsamPointClamp, uv + offset).z;
+            if (centerMask > 0.5f && neighborMask < 0.5f)
+            {
+                isEdge = true;
+                break;
+            }
+        }
+        if (isEdge)
+            break;
+    }
+    
+    if (isEdge)
+    {
+        lighting = float3(0, 0, 0);
+    }
     float4 litColor = float4(lighting, 1);
     
     litColor.a = albedo.a;

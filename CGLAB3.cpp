@@ -311,7 +311,11 @@ void CGLAB::Draw(const GameTimer& gt)
 
 
 	// 2: GBuffer Table
-	mCommandList->SetGraphicsRootDescriptorTable(4, mGBuffer->Srv());
+	mCommandList->SetGraphicsRootDescriptorTable(5, mGBuffer->Srv());
+	// 3: Velocity Texture
+	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(mVelocityTexture->Resource(),
+		D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_GENERIC_READ));
+	mCommandList->SetGraphicsRootDescriptorTable(4, mVelocityTexture->Srv());
 
 	for (auto& light : mLights)
 	{
@@ -366,8 +370,7 @@ void CGLAB::Draw(const GameTimer& gt)
 
 	DrawRenderItems(mCommandList.Get(), mRitemLayer[(int)RenderLayer::Sky]);
 
-	mCommandList->ResourceBarrier(1, &CD3DX12_RESOURCE_BARRIER::Transition(mVelocityTexture->Resource(),
-		D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_GENERIC_READ));
+
 	// 0: PassCB
 	mCommandList->SetGraphicsRootConstantBufferView(0, passCB->GetGPUVirtualAddress());
 
@@ -579,6 +582,7 @@ void CGLAB::UpdateObjectCBs(const GameTimer& gt)
 			XMStoreFloat4x4(&objConstants.PrevWorld, XMMatrixTranspose(prevworld));
 			XMStoreFloat4x4(&objConstants.TexTransform, XMMatrixTranspose(texTransform));
 			objConstants.MaterialIndex = e->Mat->MatCBIndex;
+			objConstants.IsWallhack = e->isWallhack;
 
 			currObjectCB->CopyData(e->ObjCBIndex, objConstants);
 
@@ -854,6 +858,23 @@ void CGLAB::ImguiUpdate()
 			ImGui::Checkbox("Use TAA?", &useTaa);
 			ImGui::EndTabItem();
 		}
+		if (ImGui::BeginTabItem("Objects"))
+		{
+			for (auto& rItem : mAllRitems)
+			{
+				std::string s = "\nObject " + rItem->name;
+				ImGui::PushID(++imguiID);
+				ImGui::Text(s.c_str());
+				bool b = rItem->isWallhack;
+				ImGui::Checkbox("Use Wallhack", &b);
+				rItem->isWallhack = b;
+				rItem->NumFramesDirty = gNumFrameResources;
+				ImGui::Separator();
+				ImGui::PopID();
+			}
+			ImGui::EndTabItem();
+		}
+
 		ImGui::EndTabBar();
 	}
 	ImGui::End();
@@ -1441,22 +1462,26 @@ void CGLAB::BuildLightingRootSignature()
 {
 
 	CD3DX12_DESCRIPTOR_RANGE gBufferTable;
-	gBufferTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 2);
+	gBufferTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 3, 3);
+
+	
 
 	CD3DX12_DESCRIPTOR_RANGE cubeMap;
 	cubeMap.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);
 	CD3DX12_DESCRIPTOR_RANGE shadowMap;
 	shadowMap.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 1);
-
-	CD3DX12_ROOT_PARAMETER slotRootParameter[5];
+	CD3DX12_DESCRIPTOR_RANGE gVelTable;
+	gVelTable.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 2);
+	CD3DX12_ROOT_PARAMETER slotRootParameter[6];
 
 	slotRootParameter[0].InitAsConstantBufferView(0); // pass CB
 	slotRootParameter[1].InitAsConstantBufferView(1); // light pass CB
 	slotRootParameter[2].InitAsDescriptorTable(1, &cubeMap);
 	slotRootParameter[3].InitAsDescriptorTable(1, &shadowMap);
-	slotRootParameter[4].InitAsDescriptorTable(1, &gBufferTable);
+	slotRootParameter[4].InitAsDescriptorTable(1, &gVelTable);
+	slotRootParameter[5].InitAsDescriptorTable(1, &gBufferTable);
 
-	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(5, slotRootParameter,
+	CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc(6, slotRootParameter,
 		(UINT)GetStaticSamplers().size(), GetStaticSamplers().data(),
 		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT);
 
@@ -1653,6 +1678,8 @@ void CGLAB::BuildRenderItems()
 {
 	CreateRenderItem("skybox", "shapeGeo", "sky", (int)RenderLayer::Sky, XMMatrixScaling(5000.0f, 5000.0f, 5000.0f), XMMatrixIdentity(), XMMatrixIdentity(), XMMatrixIdentity(), "sphere");
 	CreateRenderItem("skull", "skullGeo", "skullMat", (int)RenderLayer::Opaque, XMMatrixScaling(2.0f, 2.0f, 2.0f), XMMatrixIdentity(), XMMatrixTranslation(0.0f, 3.0f, 0.0f), XMMatrixScaling(1.0f, 1.0f, 1.0f), "Group5732");
+	CreateRenderItem("skull2", "skullGeo", "skullMat", (int)RenderLayer::Opaque, XMMatrixScaling(2.0f, 2.0f, 2.0f), XMMatrixIdentity(), XMMatrixTranslation(0.0f, -2.0f, 0.0f), XMMatrixScaling(1.0f, 1.0f, 1.0f), "Group5732");
+	mAllRitems.back()->isWallhack = true;
 	CreateRenderItem("debugquad", "shapeGeo", "bricks0", (int)RenderLayer::Debug, XMMatrixScaling(1.0f, 1.0f, 1.0f), XMMatrixIdentity(), XMMatrixIdentity(), XMMatrixIdentity(), "quad");
 	CreateRenderItem("box", "shapeGeo", "bricks0", (int)RenderLayer::Opaque, XMMatrixScaling(2.0f, 1.0f, 2.0f), XMMatrixIdentity(), XMMatrixTranslation(0.0f, 0.5f, 0.0f), XMMatrixScaling(1.0f, 0.5f, 1.0f), "box");
 	CreateRenderItem("floor", "shapeGeo", "tile0", (int)RenderLayer::Opaque, XMMatrixScaling(1.0f, 1.0f, 1.0f), XMMatrixIdentity(), XMMatrixIdentity(), XMMatrixScaling(8.0f, 8.0f, 1.0f), "grid");

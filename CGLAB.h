@@ -27,7 +27,7 @@ struct RenderItem
     XMFLOAT4X4 World = MathHelper::Identity4x4();
     XMFLOAT4X4 PrevWorld = MathHelper::Identity4x4();
     XMFLOAT4X4 TexTransform = MathHelper::Identity4x4();
-
+	bool isWallhack = false;
     int NumFramesDirty = gNumFrameResources;
     UINT ObjCBIndex = -1;
 
