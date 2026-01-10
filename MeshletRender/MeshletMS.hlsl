@@ -24,6 +24,8 @@ struct Constants
     float4x4 WorldView;
     float4x4 WorldViewProj;
     uint     DrawMeshlets;
+    float Time;
+    float3 Padding;
 };
 
 struct MeshInfo
@@ -104,6 +106,12 @@ uint GetVertexIndex(Meshlet m, uint localIndex)
 VertexOut GetVertexAttributes(uint meshletIndex, uint vertexIndex)
 {
     Vertex v = Vertices[vertexIndex];
+    
+    float frequency = 10.0; 
+    float amplitude = .2; 
+    float speed = 3.0; 
+    
+    v.Position.y += sin(v.Position.x * frequency + Globals.Time * speed) * amplitude;
 
     VertexOut vout;
     vout.PositionVS = mul(float4(v.Position, 1), Globals.WorldView).xyz;

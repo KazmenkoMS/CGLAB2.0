@@ -534,6 +534,10 @@ void D3D12MeshletRender::OnUpdate()
     XMStoreFloat4x4(&m_constantBufferData.WorldViewProj, XMMatrixTranspose(world * view * proj));
     m_constantBufferData.DrawMeshlets = false;
 
+    static float totalTime = 0.0f;
+    totalTime += static_cast<float>(m_timer.GetElapsedSeconds());
+
+    m_constantBufferData.Time = totalTime;
     memcpy(m_cbvDataBegin + sizeof(SceneConstantBuffer) * m_frameIndex, &m_constantBufferData, sizeof(m_constantBufferData));
 }
 
